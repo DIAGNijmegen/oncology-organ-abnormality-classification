@@ -14,10 +14,6 @@ from monai.transforms import (
     Compose,
     EnsureTyped,
     LoadImaged,
-    Orientationd,
-    EnsureChannelFirstd,
-    Spacingd,
-    ResizeWithPadOrCropd,
 )
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -29,10 +25,15 @@ from .feature_model_util import get_args_parser
 def load_dataset(args, dataset_type):
     preprocess = Compose(
         [
-            LoadImaged(keys=["image"], reader="itkreader", image_only=True),
-            EnsureChannelFirstd(keys=["image"]),
-            Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear")),
-            ResizeWithPadOrCropd(keys=["image"], spatial_size=(224, 224, 3)),
+            LoadImaged(keys=["image"], ensure_channel_first=True),
+            ScaleIntensityRanged(
+                keys=["image"],
+                a_min=None,
+                a_max=None,
+                b_min=0.0,
+                b_max=1.0,
+                clip=False,
+            ),
             EnsureTyped(keys=["image"]),
         ]
     )

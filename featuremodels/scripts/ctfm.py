@@ -13,17 +13,11 @@ import torch
 from lighter_zoo import SegResEncoder
 from monai.transforms import (
     Compose,
-    CropForeground,
     CropForegroundd,
-    EnsureType,
     EnsureTyped,
-    LoadImage,
     LoadImaged,
-    Orientation,
     Orientationd,
-    ScaleIntensityRange,
     ScaleIntensityRanged,
-    Transform,
 )
 from tqdm import tqdm
 
@@ -41,9 +35,7 @@ def load_model():
 def load_dataset(args, dataset_type):
     preprocess = Compose(
         [
-            LoadImaged(
-                keys=["image"], ensure_channel_first=True, image_only=True
-            ),
+            LoadImaged(keys=["image"], ensure_channel_first=True),
             EnsureTyped(keys=["image"]),
             EnsureTyped(keys=["label"]),
             Orientationd(keys=["image"], axcodes="SPL"),

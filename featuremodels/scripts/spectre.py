@@ -10,14 +10,12 @@ import numpy as np
 import torch
 from monai.transforms import (
     Compose,
-    CropForegroundd,
     EnsureTyped,
     LoadImaged,
     Orientationd,
     ScaleIntensityRanged,
-    Transform,
     Spacingd,
-    ResizeWithPadOrCropd,
+    CenterSpatialCropd,
 )
 from tqdm import tqdm
 
@@ -36,23 +34,20 @@ def load_model():
 def load_dataset(args, dataset_type):
     preprocess = Compose(
         [
-            LoadImaged(
-                keys=["image"], ensure_channel_first=True, image_only=True
-            ),
-            EnsureTyped(keys=["image"]),
+            LoadImaged(keys=["image"], ensure_channel_first=True),
+            EnsureTyped(keys=["image"], dtype=torch.float32),
             EnsureTyped(keys=["label"]),
             Orientationd(keys=["image"], axcodes="RAS"),
             ScaleIntensityRanged(
                 keys=["image"],
                 a_min=-1000,
                 a_max=1000,
-                b_min=0,
-                b_max=1,
+                b_min=0.0,
+                b_max=1.0,
                 clip=True,
             ),
-            Spacingd(keys=["image"], pixdim=(0.5, 0.5, 1.0), mode=("trilinear")),
-            ResizeWithPadOrCropd(keys=["image"], spatial_size=(128, 128, 64)),
-            CropForegroundd(keys=["image"], source_key="image"),
+            Spacingd(keys=["image"], pixdim=(0.5, 0.5, 1.0), mode=("bilinear")),
+            CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 384)),
         ]
     )
     json_path = args.entries_file

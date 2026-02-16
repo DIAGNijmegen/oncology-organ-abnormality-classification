@@ -10,12 +10,11 @@ import numpy as np
 import torch
 from monai.transforms import (
     Compose,
-    CropForegroundd,
+    DivisiblePadd,
     EnsureTyped,
     LoadImaged,
     Orientationd,
     ScaleIntensityRanged,
-    Transform,
     ResizeWithPadOrCropd,
     NormalizeIntensityd,
 )
@@ -59,10 +58,8 @@ def load_model():
 def load_dataset(args, dataset_type):
     preprocess = Compose(
         [
-            LoadImaged(
-                keys=["image"], ensure_channel_first=True, image_only=True
-            ),
-            EnsureTyped(keys=["image"]),
+            LoadImaged(keys=["image"], ensure_channel_first=True),
+            EnsureTyped(keys=["image"], dtype=torch.float32),
             EnsureTyped(keys=["label"]),
             Orientationd(keys=["image"], axcodes="LPS"),
             ScaleIntensityRanged(
@@ -78,7 +75,8 @@ def load_dataset(args, dataset_type):
                 subtrahend=-86.8086,
                 divisor=322.6347,
             ),
-            ResizeWithPadOrCropd(keys=["image"], spatial_size=(224, 224, 16)),
+            ResizeWithPadOrCropd(keys=["image"], spatial_size=(224, 224, -1)),
+            DivisiblePadd(keys=["image"], k=(1, 1, 4)),
         ]
     )
     json_path = args.entries_file

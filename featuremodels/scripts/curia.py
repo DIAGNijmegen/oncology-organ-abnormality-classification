@@ -14,8 +14,6 @@ from monai.transforms import (
     LoadImaged,
     Orientationd,
     EnsureChannelFirstd,
-    Spacingd,
-    ResizeWithPadOrCropd,
 )
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -28,10 +26,9 @@ from util.util import fix_random_seeds
 def load_dataset(args, dataset_type):
     preprocess = Compose(
         [
-            LoadImaged(keys=["image"], reader="itkreader", image_only=True),
+            LoadImaged(keys=["image"]),
             EnsureChannelFirstd(keys=["image"]),
-            Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear")),
-            ResizeWithPadOrCropd(keys=["image"], spatial_size=(256, 256, 1)),
+            Orientationd(keys=["image"], axcodes="PLS"),
             EnsureTyped(keys=["image"]),
         ]
     )
