@@ -1,0 +1,77 @@
+# Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
+# Licensed under Apache-2.0
+
+rule evaluate_knn:
+    input:
+        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
+        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
+    output:
+        output_metrics = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/metrics/{feature_path}/knn.json"
+    resources:
+        image="jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=16000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.knn \
+                --feature-file-training {input.feature_file_training} \
+                --feature-file-test {input.feature_file_test} \
+                --output-metrics {output.output_metrics}"
+        """
+
+rule evaluate_linear_probing:
+    input:
+        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
+        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
+    output:
+        output_metrics = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/metrics/{feature_path}/linear.json",
+        output_checkpoint = directory(OUTPUT_ROOT +  "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/checkpoints/{feature_path}/")
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.linearprobing \
+                --feature-file-training {input.feature_file_training} \
+                --feature-file-test {input.feature_file_test} \
+                --output-metrics {output.output_metrics} \
+                --output-checkpoint {output.output_checkpoint}"
+        """
+
+rule evaluate_visualization:
+    input:
+        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
+        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
+    output:
+        output_lda = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/lda.png",
+        output_pca = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/pca.png",
+        output_tsne = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/tsne.png"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=16000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.visualization \
+                --feature-file-training {input.feature_file_training} \
+                --feature-file-test {input.feature_file_test} \
+                --output-lda {output.output_lda} \
+                --output-pca {output.output_pca} \
+                --output-tsne {output.output_tsne}"
+        """
