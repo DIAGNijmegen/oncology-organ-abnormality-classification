@@ -164,7 +164,7 @@ def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
     return annotations
 
 
-def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, padding: int = 10) -> Optional[Tuple[np.ndarray, Tuple[int, int, int]]]:
+def get_organ_crop(scan_path: str, seg_path: str, organ_name: str) -> Optional[Tuple[np.ndarray, Tuple[int, int, int]]]:
     """
     Extract organ crop from scan using segmentation mask.
     Returns: (organ_crop, bbox_origin) or None if organ not found
@@ -201,16 +201,8 @@ def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, padding: int 
     y_min, y_max = coords[1].min(), coords[1].max()
     x_min, x_max = coords[2].min(), coords[2].max()
     
-    # Add padding
-    z_min = max(0, z_min - padding)
-    z_max = min(scan_data.shape[0], z_max + padding)
-    y_min = max(0, y_min - padding)
-    y_max = min(scan_data.shape[1], y_max + padding)
-    x_min = max(0, x_min - padding)
-    x_max = min(scan_data.shape[2], x_max + padding)
-    
-    # Crop
-    organ_crop = scan_data[z_min:z_max, y_min:y_max, x_min:x_max]
+    # Crop (no padding)
+    organ_crop = scan_data[z_min:z_max+1, y_min:y_max+1, x_min:x_max+1]
     bbox_origin = (z_min, y_min, x_min)
     
     return organ_crop, bbox_origin

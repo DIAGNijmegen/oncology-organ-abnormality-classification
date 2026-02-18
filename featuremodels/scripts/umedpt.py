@@ -100,7 +100,7 @@ def process_scan_for_organ(
     Returns True if features were extracted, False if placeholder was saved.
     """
     # Get organ crop
-    result = get_organ_crop(scan_path, seg_path, organ_name, padding=20)
+    result = get_organ_crop(scan_path, seg_path, organ_name)
     if result is None:
         # Organ not found - save placeholder file
         print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Saving placeholder file.")
