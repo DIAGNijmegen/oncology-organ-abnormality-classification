@@ -1,31 +1,11 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
-def get_dataset_modalities(experiment_name, dataset_name):
-    """Retrieve the list of modalities for a given dataset in an experiment."""
-    import json
-
-    experiment = EXPERIMENTS[experiment_name]
-    dataset = next((d for d in experiment['datasets'] if d['name'] == dataset_name),None)
-    entries_file = dataset['entries_file']
-
-    with open(f"{DATASET_ROOT}/{dataset_name}/{entries_file}_fold0.json", "r") as f:
-        dataset_json = json.load(f)
-        modalities = dataset_json['modality']
-
-        # In CT datasets, the modality can be the string "CT" instead of a list ["CT"]
-        if not isinstance(modalities, list):
-            modalities = [modalities]
-
-    return sorted(modalities)
-
-rule aggregate_modality_mean:
+rule aggregate_mean:
     input:
-        input_features_training = lambda wildcards: [OUTPUT_ROOT + f"/{wildcards.experiment_name}/{wildcards.epoch}/{wildcards.dataset_name}/fold{wildcards.fold}/features/modalities/{modality}/training.npz" for modality in get_dataset_modalities(wildcards.experiment_name, wildcards.dataset_name)],
-        input_features_test = lambda wildcards: [OUTPUT_ROOT + f"/{wildcards.experiment_name}/{wildcards.epoch}/{wildcards.dataset_name}/fold{wildcards.fold}/features/modalities/{modality}/test.npz" for modality in get_dataset_modalities(wildcards.experiment_name, wildcards.dataset_name)],
+        input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
     output:
-        output_features_training = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/aggregated/modality-mean/training.npz",
-        output_features_test = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/aggregated/modality-mean/test.npz"
+        output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
@@ -37,9 +17,28 @@ rule aggregate_modality_mean:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m aggregation.scripts.modalitymean \
-                --input-features-training {input.input_features_training} \
-                --input-features-test {input.input_features_test} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test}"
+            /usr/local/bin/python3 -m aggregation.scripts.mean \
+                --input-features {input.input_features} \
+                --output-features {output.output_features}"
+        """
+
+rule aggregate_max:
+    input:
+        input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
+    output:
+        output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=16000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m aggregation.scripts.max \
+                --input-features {input.input_features} \
+                --output-features {output.output_features}"
         """

@@ -5,22 +5,18 @@
       "architecture": "ctfm",
       "type": null
     },
-    "epochs": [0],
     "datasets": [
       {
-        "name": "CT_PANORAMA",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
-      },
-      {
-        "name": "amara",
-        "entries_file": "2025-05-23-amara-patches-224x224x16"
+        "name": "LEAVS"
       }
     ],
-    "aggregation_methods": [],
+    "aggregation_methods": [
+      "mean",
+      "max"
+    ],
     "evaluation_modes": [
       "knn",
-      "linear",
-      "visualizations"
+      "linear"
     ]
   },
   "curia": {
@@ -29,28 +25,18 @@
       "architecture": "curia",
       "type": null
     },
-    "epochs": [0],
     "datasets": [
       {
-        "name": "CT_PANORAMA",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
-      },
-      {
-        "name": "amara",
-        "entries_file": "2025-05-23-amara-patches-224x224x16"
-      },
-      {
-        "name": "MR_PICAI",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
+        "name": "LEAVS"
       }
     ],
     "aggregation_methods": [
-      "modality-mean"
+      "mean",
+      "max"
     ],
     "evaluation_modes": [
       "knn",
-      "linear",
-      "visualizations"
+      "linear"
     ]
   },
   "umedpt": {
@@ -59,28 +45,18 @@
       "architecture": "umedpt",
       "type": null
     },
-    "epochs": [0],
     "datasets": [
       {
-        "name": "CT_PANORAMA",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
-      },
-      {
-        "name": "amara",
-        "entries_file": "2025-05-23-amara-patches-224x224x16"
-      },
-      {
-        "name": "MR_PICAI",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
+        "name": "LEAVS"
       }
     ],
     "aggregation_methods": [
-      "modality-mean"
+      "mean",
+      "max"
     ],
     "evaluation_modes": [
       "knn",
-      "linear",
-      "visualizations"
+      "linear"
     ]
   },
   "spectre": {
@@ -89,22 +65,18 @@
       "architecture": "spectre",
       "type": null
     },
-    "epochs": [0],
     "datasets": [
       {
-        "name": "CT_PANORAMA",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
-      },
-      {
-        "name": "amara",
-        "entries_file": "2025-05-23-amara-patches-224x224x16"
+        "name": "LEAVS"
       }
     ],
-    "aggregation_methods": [],
+    "aggregation_methods": [
+      "mean",
+      "max"
+    ],
     "evaluation_modes": [
       "knn",
-      "linear",
-      "visualizations"
+      "linear"
     ]
   },
   "tapct": {
@@ -113,22 +85,18 @@
       "architecture": "tapct",
       "type": null
     },
-    "epochs": [0],
     "datasets": [
       {
-        "name": "CT_PANORAMA",
-        "entries_file": "2025-05-23-PubTrain-patches-224x224x16_patch_labels"
-      },
-      {
-        "name": "amara",
-        "entries_file": "2025-05-23-amara-patches-224x224x16"
+        "name": "LEAVS"
       }
     ],
-    "aggregation_methods": [],
+    "aggregation_methods": [
+      "mean",
+      "max"
+    ],
     "evaluation_modes": [
       "knn",
-      "linear",
-      "visualizations"
+      "linear"
     ]
   }
 }

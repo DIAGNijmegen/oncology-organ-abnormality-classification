@@ -24,58 +24,48 @@ import json
 with open(f"{REPOSITORY_ROOT}/experiments.json","r") as f:
     EXPERIMENTS = json.load(f)
 
+from util.snakemake_helpers import setup_leavs_dataset
 
-def get_info_from_dataset(experiment_name, dataset_name):
-    import os
-
-    experiment = EXPERIMENTS[experiment_name]
-    dataset = next((d for d in experiment['datasets'] if d['name'] == dataset_name),None)
-    entries_file = dataset['entries_file']
-
-    # Get the folds from the dataset
-    folds = []
-    for file in os.listdir(f"{DATASET_ROOT}/{dataset_name}"):
-        if file.startswith(entries_file) and file.endswith(".json"):
-            folds.append(int(file.split("_fold")[1].split(".json")[0]))
-
-    # Get the modalities from the JSON file for the 0'th fold
-    with open(f"{DATASET_ROOT}/{dataset_name}/{entries_file}_fold0.json","r") as f:
-        dataset_json = json.load(f)
-        modalities = dataset_json['modality']
-
-        # In CT datasets, the modality can be the string "CT" instead of a list ["CT"]
-        if not isinstance(modalities,list):
-            modalities = [modalities]
-
-    return sorted(folds), sorted(modalities)
+# Set up LEAVS dataset information
+leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
+train_annotations = leavs_data["train_annotations"]
+test_annotations = leavs_data["test_annotations"]
+train_scan_ids_split = leavs_data["train_scan_ids_split"]
+val_scan_ids_split = leavs_data["val_scan_ids_split"]
+valid_organs = leavs_data["valid_organs"]
+get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 
-def add_experiment_to_output_files(experiment_name, dataset_name, fold, feature_path, epoch, evaluation_mode, output_files):
-    if evaluation_mode == 'visualizations':
-        for visualization in ['lda', 'pca', 'tsne']:
-            output_files.append(f"{OUTPUT_ROOT}/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/visualizations/{feature_path}/{visualization}.png")
-    else:
-        output_files.append(f"{OUTPUT_ROOT}/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/metrics/{feature_path}/{evaluation_mode}.json")
-
-
-# This loop enumerates all possible combinations of datasets, folds, modalities, epochs, evaluation modes, and aggregation methods
-# to create a comprehensive list of expected output files for the Snakemake workflow.
+# Generate output files for feature extraction
 output_files = []
 for experiment_name, experiment in EXPERIMENTS.items():
-    for dataset in experiment['datasets']:
-        folds, modalities = get_info_from_dataset(experiment_name,dataset['name'])
+    for organ_name in valid_organs:
+        for split in ["training", "validation", "test"]:
+            scans = get_scans_for_split_and_organ(split, organ_name)
+            for scan_id in scans:
+                output_files.append(
+                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
+                )
 
-        for fold in folds:
-            for modality in modalities:
-                for evaluation_mode in experiment['evaluation_modes']:
-                    for epoch in experiment['epochs']:
-                        add_experiment_to_output_files(experiment_name,
-                            dataset['name'],fold,f"modalities/{modality}",epoch,evaluation_mode,output_files)
+# Generate output files for aggregation
+for experiment_name, experiment in EXPERIMENTS.items():
+    for aggregation_method in experiment['aggregation_methods']:
+        for organ_name in valid_organs:
+            for split in ["training", "validation", "test"]:
+                scans = get_scans_for_split_and_organ(split, organ_name)
+                for scan_id in scans:
+                    output_files.append(
+                        OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/{split}/features/aggregated/{aggregation_method}/{scan_id}.npz"
+                    )
 
-                        for aggregation_method in experiment['aggregation_methods']:
-                            add_experiment_to_output_files(experiment_name,dataset[
-                                'name'],fold,f"aggregated/{aggregation_method}",epoch,evaluation_mode,output_files)
-
+# Generate output files for evaluation (only on aggregated features)
+for experiment_name, experiment in EXPERIMENTS.items():
+    for organ_name in valid_organs:
+        for evaluation_mode in experiment['evaluation_modes']:
+            for aggregation_method in experiment['aggregation_methods']:
+                output_files.append(
+                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
+                )
 
 rule all:
     input: output_files

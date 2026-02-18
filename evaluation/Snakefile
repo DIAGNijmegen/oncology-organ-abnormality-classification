@@ -1,12 +1,36 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
+from util.snakemake_helpers import setup_leavs_dataset
+
+# Set up LEAVS dataset information
+leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
+get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
+
+
 rule evaluate_knn:
     input:
-        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
-        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
+        # Get all feature files for this organ/model/aggregation_method combination
+        feature_files_training = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/training/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("training", wildcards.organ_name)
+        ],
+        feature_files_validation = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/validation/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("validation", wildcards.organ_name)
+        ],
+        feature_files_test = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/test/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("test", wildcards.organ_name)
+        ]
     output:
-        output_metrics = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/metrics/{feature_path}/knn.json"
+        output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/knn.json"
+    params:
+        feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
+        feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",
+        feature_dir_test = OUTPUT_ROOT + "/{model_name}/{organ_name}/test/features/aggregated/{aggregation_method}",
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
         image="jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
@@ -19,23 +43,44 @@ rule evaluate_knn:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m evaluation.scripts.knn \
-                --feature-file-training {input.feature_file_training} \
-                --feature-file-test {input.feature_file_test} \
+                --feature-dir-training {params.feature_dir_training} \
+                --feature-dir-validation {params.feature_dir_validation} \
+                --feature-dir-test {params.feature_dir_test} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name {wildcards.organ_name} \
                 --output-metrics {output.output_metrics}"
         """
 
 rule evaluate_linear_probing:
     input:
-        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
-        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
+        # Get all feature files for this organ/model/aggregation_method combination
+        feature_files_training = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/training/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("training", wildcards.organ_name)
+        ],
+        feature_files_validation = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/validation/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("validation", wildcards.organ_name)
+        ],
+        feature_files_test = lambda wildcards: [
+            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/test/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
+            for scan_id in get_scans_for_split_and_organ("test", wildcards.organ_name)
+        ]
     output:
-        output_metrics = OUTPUT_ROOT + "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/metrics/{feature_path}/linear.json",
-        output_checkpoint = directory(OUTPUT_ROOT +  "/{experiment_name}/{epoch}/{dataset_name}/fold{fold}/checkpoints/{feature_path}/")
+        output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/linear.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/")
+    params:
+        feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
+        feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",
+        feature_dir_test = OUTPUT_ROOT + "/{model_name}/{organ_name}/test/features/aggregated/{aggregation_method}",
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
         cpus=8,
-        gpus=0,
+        gpus=1,
         mem_mb=24000,
         time="1-00:00:00"
     shell:
@@ -43,35 +88,12 @@ rule evaluate_linear_probing:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m evaluation.scripts.linearprobing \
-                --feature-file-training {input.feature_file_training} \
-                --feature-file-test {input.feature_file_test} \
+                --feature-dir-training {params.feature_dir_training} \
+                --feature-dir-validation {params.feature_dir_validation} \
+                --feature-dir-test {params.feature_dir_test} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name {wildcards.organ_name} \
                 --output-metrics {output.output_metrics} \
                 --output-checkpoint {output.output_checkpoint}"
-        """
-
-rule evaluate_visualization:
-    input:
-        feature_file_training = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/features/{feature_path}/training.npz",
-        feature_file_test = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/features/{feature_path}/test.npz"
-    output:
-        output_lda = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/lda.png",
-        output_pca = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/pca.png",
-        output_tsne = OUTPUT_ROOT + "/{experiment_name}/{checkpoint}/{dataset_name}/fold{fold}/visualizations/{feature_path}/tsne.png"
-    resources:
-        image = "jtagscherer/evalblocks-core:0.0.1",
-        qos="idle",
-        cpus=8,
-        gpus=0,
-        mem_mb=16000,
-        time="1-00:00:00"
-    shell:
-        """
-        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m evaluation.scripts.visualization \
-                --feature-file-training {input.feature_file_training} \
-                --feature-file-test {input.feature_file_test} \
-                --output-lda {output.output_lda} \
-                --output-pca {output.output_pca} \
-                --output-tsne {output.output_tsne}"
         """

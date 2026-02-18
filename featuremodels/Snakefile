@@ -1,17 +1,25 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
-def get_entries_file(experiment_name, dataset_name):
-    experiment = EXPERIMENTS[experiment_name]
-    dataset = next((d for d in experiment['datasets'] if d['name'] == dataset_name), None)
-    return dataset['entries_file']
+from util.snakemake_helpers import setup_leavs_dataset
+
+# Set up LEAVS dataset information
+leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
+train_annotations = leavs_data["train_annotations"]
+test_annotations = leavs_data["test_annotations"]
+train_scan_ids_split = leavs_data["train_scan_ids_split"]
+val_scan_ids_split = leavs_data["val_scan_ids_split"]
+test_scan_ids = leavs_data["test_scan_ids"]
+valid_organs = leavs_data["valid_organs"]
+get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
+
 
 rule compute_features_ctfm:
     input:
-        entries_file = lambda wildcards: DATASET_ROOT + f"/{wildcards.dataset_name}/{get_entries_file('ctfm', wildcards.dataset_name)}_fold{wildcards.fold}.json"
+        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
+        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_features_training = OUTPUT_ROOT + "/ctfm/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/training.npz",
-        output_features_test = OUTPUT_ROOT + "/ctfm/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/test.npz"
+        output_path = OUTPUT_ROOT + "/ctfm/{organ_name}/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-ctfm:0.0.1",
         qos="low",
@@ -24,17 +32,18 @@ rule compute_features_ctfm:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m featuremodels.scripts.ctfm \
-                --entries-file {input.entries_file} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test}"
+                --scan-path {input.scan_path} \
+                --seg-path {input.seg_path} \
+                --organ-name {wildcards.organ_name} \
+                --output-path {output.output_path}"
         """
 
 rule compute_features_curia:
     input:
-        entries_file = lambda wildcards: DATASET_ROOT + f"/{wildcards.dataset_name}/{get_entries_file('curia', wildcards.dataset_name)}_fold{wildcards.fold}.json"
+        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
+        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_features_training = OUTPUT_ROOT + "/curia/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/training.npz",
-        output_features_test = OUTPUT_ROOT + "/curia/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/test.npz"
+        output_path = OUTPUT_ROOT + "/curia/{organ_name}/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -48,18 +57,18 @@ rule compute_features_curia:
             "export HF_HOME={HF_HOME} && \
             cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m featuremodels.scripts.curia \
-                --entries-file {input.entries_file} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test} \
-                --modality {wildcards.modality}"
+                --scan-path {input.scan_path} \
+                --seg-path {input.seg_path} \
+                --organ-name {wildcards.organ_name} \
+                --output-path {output.output_path}"
         """
 
 rule compute_features_umedpt:
     input:
-        entries_file = lambda wildcards: DATASET_ROOT + f"/{wildcards.dataset_name}/{get_entries_file('umedpt', wildcards.dataset_name)}_fold{wildcards.fold}.json"
+        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
+        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_features_training = OUTPUT_ROOT + "/umedpt/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/training.npz",
-        output_features_test = OUTPUT_ROOT + "/umedpt/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/test.npz"
+        output_path = OUTPUT_ROOT + "/umedpt/{organ_name}/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-umedpt:0.0.1",
         qos="low",
@@ -72,18 +81,18 @@ rule compute_features_umedpt:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m featuremodels.scripts.umedpt \
-                --entries-file {input.entries_file} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test} \
-                --modality {wildcards.modality}"
+                --scan-path {input.scan_path} \
+                --seg-path {input.seg_path} \
+                --organ-name {wildcards.organ_name} \
+                --output-path {output.output_path}"
         """
 
 rule compute_features_spectre:
     input:
-        entries_file = lambda wildcards: DATASET_ROOT + f"/{wildcards.dataset_name}/{get_entries_file('curia', wildcards.dataset_name)}_fold{wildcards.fold}.json"
+        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
+        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_features_training = OUTPUT_ROOT + "/spectre/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/training.npz",
-        output_features_test = OUTPUT_ROOT + "/spectre/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/test.npz"
+        output_path = OUTPUT_ROOT + "/spectre/{organ_name}/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-spectre:0.0.1",
         qos="low",
@@ -96,18 +105,18 @@ rule compute_features_spectre:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m featuremodels.scripts.spectre \
-                --entries-file {input.entries_file} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test} \
-                --modality {wildcards.modality}"
+                --scan-path {input.scan_path} \
+                --seg-path {input.seg_path} \
+                --organ-name {wildcards.organ_name} \
+                --output-path {output.output_path}"
         """
 
 rule compute_features_tapct:
     input:
-        entries_file = lambda wildcards: DATASET_ROOT + f"/{wildcards.dataset_name}/{get_entries_file('curia', wildcards.dataset_name)}_fold{wildcards.fold}.json"
+        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
+        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_features_training = OUTPUT_ROOT + "/tapct/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/training.npz",
-        output_features_test = OUTPUT_ROOT + "/tapct/{epoch}/{dataset_name}/fold{fold}/features/modalities/{modality}/test.npz"
+        output_path = OUTPUT_ROOT + "/tapct/{organ_name}/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -121,8 +130,8 @@ rule compute_features_tapct:
             "export HF_HOME={HF_HOME} && \
             cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m featuremodels.scripts.tapct \
-                --entries-file {input.entries_file} \
-                --output-features-training {output.output_features_training} \
-                --output-features-test {output.output_features_test} \
-                --modality {wildcards.modality}"
+                --scan-path {input.scan_path} \
+                --seg-path {input.seg_path} \
+                --organ-name {wildcards.organ_name} \
+                --output-path {output.output_path}"
         """
