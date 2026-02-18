@@ -15,6 +15,9 @@ from util.leavs_utils import (
     create_train_val_split,
 )
 
+# Hard-coded list of valid organs
+VALID_ORGANS = ['gallbladder', 'kidney_left', 'kidney_right', 'large_bowel', 'liver', 'pancreas', 'small_bowel', 'spleen', 'stomach']
+
 
 def setup_leavs_dataset(
     dataset_root: str,
@@ -39,7 +42,6 @@ def setup_leavs_dataset(
             - test_scan_ids: List of test scan IDs
             - train_scan_ids_split: List of training scan IDs (after split)
             - val_scan_ids_split: List of validation scan IDs (after split)
-            - valid_organs: List of valid organ names
             - get_scans_for_split_and_organ: Helper function
     """
     # Set up paths
@@ -58,26 +60,6 @@ def setup_leavs_dataset(
     train_scan_ids_split, val_scan_ids_split = create_train_val_split(
         train_scan_ids, val_ratio=val_ratio, seed=seed
     )
-    
-    # Get valid organs
-    if filter_valid_labels:
-        all_organs = set()
-        for scan_id, organs in train_annotations.items():
-            for organ, label in organs.items():
-                if label in [0, 1]:
-                    all_organs.add(organ)
-        for scan_id, organs in test_annotations.items():
-            for organ, label in organs.items():
-                if label in [0, 1]:
-                    all_organs.add(organ)
-        valid_organs = sorted(list(all_organs))
-    else:
-        all_organs = set()
-        for scan_id, organs in train_annotations.items():
-            all_organs.update(organs.keys())
-        for scan_id, organs in test_annotations.items():
-            all_organs.update(organs.keys())
-        valid_organs = sorted(list(all_organs))
     
     # Define helper function
     def get_scans_for_split_and_organ(split: str, organ_name: str) -> List[str]:
@@ -108,6 +90,5 @@ def setup_leavs_dataset(
         "test_scan_ids": test_scan_ids,
         "train_scan_ids_split": train_scan_ids_split,
         "val_scan_ids_split": val_scan_ids_split,
-        "valid_organs": valid_organs,
         "get_scans_for_split_and_organ": get_scans_for_split_and_organ,
     }

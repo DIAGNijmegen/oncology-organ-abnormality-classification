@@ -27,6 +27,22 @@ def main(args):
     
     # Load patch features
     data = np.load(args.input_features)
+    
+    # Check if this is a placeholder file
+    is_placeholder = data.get("is_placeholder", False)
+    if is_placeholder:
+        print(f"Skipping placeholder file: {args.input_features}")
+        # Save an empty placeholder file for aggregated features as well
+        save_dict = {
+            "features": np.array([]),
+            "is_placeholder": True,
+        }
+        if "organ_name" in data:
+            save_dict["organ_name"] = data["organ_name"]
+        np.savez(args.output_features, **save_dict)
+        print(f"Placeholder aggregated features saved to {args.output_features}")
+        return
+    
     patch_features = data["features"]  # Shape: (n_patches, ...) - can be any shape
     
     if len(patch_features) == 0:
@@ -43,6 +59,7 @@ def main(args):
     # Save aggregated features
     save_dict = {
         "features": aggregated_features,
+        "is_placeholder": False,
     }
     if positions is not None:
         save_dict["positions"] = positions

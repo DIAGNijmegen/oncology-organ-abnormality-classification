@@ -97,11 +97,22 @@ def process_scan_for_organ(
 ):
     """
     Process a single scan for a specific organ.
+    Returns True if features were extracted, False if placeholder was saved.
     """
     # Get organ crop
     result = get_organ_crop(scan_path, seg_path, organ_name, padding=20)
     if result is None:
-        print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Skipping.")
+        # Organ not found - save placeholder file
+        print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Saving placeholder file.")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        np.savez(
+            output_path,
+            features=np.array([]),
+            positions=np.array([]),
+            bbox_origin=None,
+            organ_name=organ_name,
+            is_placeholder=True
+        )
         return False
     
     organ_crop, bbox_origin = result
@@ -110,7 +121,17 @@ def process_scan_for_organ(
     features, positions = extract_features_for_organ(model, organ_crop, window_size)
     
     if len(features) == 0:
-        print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Skipping.")
+        # No features extracted - save placeholder file
+        print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Saving placeholder file.")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        np.savez(
+            output_path,
+            features=np.array([]),
+            positions=np.array([]),
+            bbox_origin=bbox_origin,
+            organ_name=organ_name,
+            is_placeholder=True
+        )
         return False
     
     # Save features with position information
@@ -120,7 +141,8 @@ def process_scan_for_organ(
         features=features,
         positions=positions,
         bbox_origin=bbox_origin,
-        organ_name=organ_name
+        organ_name=organ_name,
+        is_placeholder=False
     )
     return True
 

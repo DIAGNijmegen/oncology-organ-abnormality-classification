@@ -91,7 +91,17 @@ def load_features_and_labels(
             label = annotations[scan_id][organ_name]
             if label in [0, 1]:  # Only include valid labels
                 data = np.load(feature_file)
+                
+                # Skip placeholder files
+                is_placeholder = data.get("is_placeholder", False)
+                if is_placeholder:
+                    continue
+                
                 feature = data["features"]
+                
+                # Skip empty features
+                if feature.size == 0:
+                    continue
                 
                 # Flatten aggregated features to 1D for evaluation
                 # Aggregated features can have any shape (e.g., from feature maps)

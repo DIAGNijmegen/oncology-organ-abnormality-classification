@@ -1,32 +1,12 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
-from util.snakemake_helpers import setup_leavs_dataset
-
-# Set up LEAVS dataset information
-leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
-train_annotations = leavs_data["train_annotations"]
-test_annotations = leavs_data["test_annotations"]
-train_scan_ids_split = leavs_data["train_scan_ids_split"]
-val_scan_ids_split = leavs_data["val_scan_ids_split"]
-test_scan_ids = leavs_data["test_scan_ids"]
-valid_organs = leavs_data["valid_organs"]
-get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
-
-
-# Generic helper functions for feature extraction rules
-def get_feature_outputs(wildcards, model_name):
-    """Generate all output files for a scan across all organs."""
-    outputs = []
-    for organ_name in valid_organs:
-        output_path = OUTPUT_ROOT + f"/{model_name}/{organ_name}/{wildcards.split}/features/raw/{wildcards.scan_id}.npz"
-        outputs.append(output_path)
-    return outputs
+from util.snakemake_helpers import VALID_ORGANS
 
 def get_feature_output_paths_string(wildcards, model_name):
     """Generate output paths string for shell command."""
     paths = []
-    for organ_name in valid_organs:
+    for organ_name in VALID_ORGANS:
         output_path = OUTPUT_ROOT + f"/{model_name}/{organ_name}/{wildcards.split}/features/raw/{wildcards.scan_id}.npz"
         paths.append(f"{organ_name}:{output_path}")
     return ",".join(paths)
@@ -36,7 +16,15 @@ rule compute_features_ctfm:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = lambda wildcards: get_feature_outputs(wildcards, "ctfm")
+        gallbladder = OUTPUT_ROOT + "/ctfm/gallbladder/{split}/features/raw/{scan_id}.npz",
+        kidney_left = OUTPUT_ROOT + "/ctfm/kidney_left/{split}/features/raw/{scan_id}.npz",
+        kidney_right = OUTPUT_ROOT + "/ctfm/kidney_right/{split}/features/raw/{scan_id}.npz",
+        large_bowel = OUTPUT_ROOT + "/ctfm/large_bowel/{split}/features/raw/{scan_id}.npz",
+        liver = OUTPUT_ROOT + "/ctfm/liver/{split}/features/raw/{scan_id}.npz",
+        pancreas = OUTPUT_ROOT + "/ctfm/pancreas/{split}/features/raw/{scan_id}.npz",
+        small_bowel = OUTPUT_ROOT + "/ctfm/small_bowel/{split}/features/raw/{scan_id}.npz",
+        spleen = OUTPUT_ROOT + "/ctfm/spleen/{split}/features/raw/{scan_id}.npz",
+        stomach = OUTPUT_ROOT + "/ctfm/stomach/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-ctfm:0.0.1",
         qos="low",
@@ -59,7 +47,15 @@ rule compute_features_curia:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = lambda wildcards: get_feature_outputs(wildcards, "curia")
+        gallbladder = OUTPUT_ROOT + "/curia/gallbladder/{split}/features/raw/{scan_id}.npz",
+        kidney_left = OUTPUT_ROOT + "/curia/kidney_left/{split}/features/raw/{scan_id}.npz",
+        kidney_right = OUTPUT_ROOT + "/curia/kidney_right/{split}/features/raw/{scan_id}.npz",
+        large_bowel = OUTPUT_ROOT + "/curia/large_bowel/{split}/features/raw/{scan_id}.npz",
+        liver = OUTPUT_ROOT + "/curia/liver/{split}/features/raw/{scan_id}.npz",
+        pancreas = OUTPUT_ROOT + "/curia/pancreas/{split}/features/raw/{scan_id}.npz",
+        small_bowel = OUTPUT_ROOT + "/curia/small_bowel/{split}/features/raw/{scan_id}.npz",
+        spleen = OUTPUT_ROOT + "/curia/spleen/{split}/features/raw/{scan_id}.npz",
+        stomach = OUTPUT_ROOT + "/curia/stomach/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -83,7 +79,15 @@ rule compute_features_umedpt:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = lambda wildcards: get_feature_outputs(wildcards, "umedpt")
+        gallbladder = OUTPUT_ROOT + "/umedpt/gallbladder/{split}/features/raw/{scan_id}.npz",
+        kidney_left = OUTPUT_ROOT + "/umedpt/kidney_left/{split}/features/raw/{scan_id}.npz",
+        kidney_right = OUTPUT_ROOT + "/umedpt/kidney_right/{split}/features/raw/{scan_id}.npz",
+        large_bowel = OUTPUT_ROOT + "/umedpt/large_bowel/{split}/features/raw/{scan_id}.npz",
+        liver = OUTPUT_ROOT + "/umedpt/liver/{split}/features/raw/{scan_id}.npz",
+        pancreas = OUTPUT_ROOT + "/umedpt/pancreas/{split}/features/raw/{scan_id}.npz",
+        small_bowel = OUTPUT_ROOT + "/umedpt/small_bowel/{split}/features/raw/{scan_id}.npz",
+        spleen = OUTPUT_ROOT + "/umedpt/spleen/{split}/features/raw/{scan_id}.npz",
+        stomach = OUTPUT_ROOT + "/umedpt/stomach/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-umedpt:0.0.1",
         qos="low",
@@ -106,7 +110,15 @@ rule compute_features_spectre:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = lambda wildcards: get_feature_outputs(wildcards, "spectre")
+        gallbladder = OUTPUT_ROOT + "/spectre/gallbladder/{split}/features/raw/{scan_id}.npz",
+        kidney_left = OUTPUT_ROOT + "/spectre/kidney_left/{split}/features/raw/{scan_id}.npz",
+        kidney_right = OUTPUT_ROOT + "/spectre/kidney_right/{split}/features/raw/{scan_id}.npz",
+        large_bowel = OUTPUT_ROOT + "/spectre/large_bowel/{split}/features/raw/{scan_id}.npz",
+        liver = OUTPUT_ROOT + "/spectre/liver/{split}/features/raw/{scan_id}.npz",
+        pancreas = OUTPUT_ROOT + "/spectre/pancreas/{split}/features/raw/{scan_id}.npz",
+        small_bowel = OUTPUT_ROOT + "/spectre/small_bowel/{split}/features/raw/{scan_id}.npz",
+        spleen = OUTPUT_ROOT + "/spectre/spleen/{split}/features/raw/{scan_id}.npz",
+        stomach = OUTPUT_ROOT + "/spectre/stomach/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-spectre:0.0.1",
         qos="low",
@@ -129,7 +141,15 @@ rule compute_features_tapct:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = lambda wildcards: get_feature_outputs(wildcards, "tapct")
+        gallbladder = OUTPUT_ROOT + "/tapct/gallbladder/{split}/features/raw/{scan_id}.npz",
+        kidney_left = OUTPUT_ROOT + "/tapct/kidney_left/{split}/features/raw/{scan_id}.npz",
+        kidney_right = OUTPUT_ROOT + "/tapct/kidney_right/{split}/features/raw/{scan_id}.npz",
+        large_bowel = OUTPUT_ROOT + "/tapct/large_bowel/{split}/features/raw/{scan_id}.npz",
+        liver = OUTPUT_ROOT + "/tapct/liver/{split}/features/raw/{scan_id}.npz",
+        pancreas = OUTPUT_ROOT + "/tapct/pancreas/{split}/features/raw/{scan_id}.npz",
+        small_bowel = OUTPUT_ROOT + "/tapct/small_bowel/{split}/features/raw/{scan_id}.npz",
+        spleen = OUTPUT_ROOT + "/tapct/spleen/{split}/features/raw/{scan_id}.npz",
+        stomach = OUTPUT_ROOT + "/tapct/stomach/{split}/features/raw/{scan_id}.npz"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",

@@ -24,7 +24,7 @@ import json
 with open(f"{REPOSITORY_ROOT}/experiments.json","r") as f:
     EXPERIMENTS = json.load(f)
 
-from util.snakemake_helpers import setup_leavs_dataset
+from util.snakemake_helpers import setup_leavs_dataset, VALID_ORGANS
 
 # Set up LEAVS dataset information
 leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
@@ -32,14 +32,13 @@ train_annotations = leavs_data["train_annotations"]
 test_annotations = leavs_data["test_annotations"]
 train_scan_ids_split = leavs_data["train_scan_ids_split"]
 val_scan_ids_split = leavs_data["val_scan_ids_split"]
-valid_organs = leavs_data["valid_organs"]
 get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 
 # Generate output files for feature extraction
 output_files = []
 for experiment_name, experiment in EXPERIMENTS.items():
-    for organ_name in valid_organs:
+    for organ_name in VALID_ORGANS:
         for split in ["training", "validation", "test"]:
             scans = get_scans_for_split_and_organ(split, organ_name)
             for scan_id in scans:
@@ -50,7 +49,7 @@ for experiment_name, experiment in EXPERIMENTS.items():
 # Generate output files for aggregation
 for experiment_name, experiment in EXPERIMENTS.items():
     for aggregation_method in experiment['aggregation_methods']:
-        for organ_name in valid_organs:
+        for organ_name in VALID_ORGANS:
             for split in ["training", "validation", "test"]:
                 scans = get_scans_for_split_and_organ(split, organ_name)
                 for scan_id in scans:
@@ -60,7 +59,7 @@ for experiment_name, experiment in EXPERIMENTS.items():
 
 # Generate output files for evaluation (only on aggregated features)
 for experiment_name, experiment in EXPERIMENTS.items():
-    for organ_name in valid_organs:
+    for organ_name in VALID_ORGANS:
         for evaluation_mode in experiment['evaluation_modes']:
             for aggregation_method in experiment['aggregation_methods']:
                 output_files.append(
