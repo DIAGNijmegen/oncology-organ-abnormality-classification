@@ -205,6 +205,7 @@ def process_scan_for_all_organs(
     processed_count = 0
     for organ_name in organ_names:
         if organ_name in output_paths:
+            print(f"Extracting features for organ: {organ_name}")
             output_path = output_paths[organ_name]
             if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
                 processed_count += 1
@@ -272,7 +273,6 @@ def main(args):
         raise RuntimeError(f"Failed to load model: {e}") from e
     
     # Process scan for all organs
-    print(f"Processing {args.scan_path} for organs: {', '.join(organ_names)}...")
     try:
         process_scan_for_all_organs(
             model, 
