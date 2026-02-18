@@ -85,9 +85,10 @@ def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
     data_dict = {"image": patch_tensor}
     transformed = transform(data_dict)
     
-    # TAP-CT expects (B, D, H, W) format
-    img = transformed["image"].squeeze(0)  # (H, W, D)
-    img = img.permute(2, 0, 1).unsqueeze(0)  # (1, D, H, W)
+    # TAP-CT expects (B, C, D, H, W) format
+    img = transformed["image"]  # (C, H, W, D) from MONAI
+    img = img.permute(0, 3, 1, 2)  # (C, D, H, W)
+    img = img.unsqueeze(0)  # (1, C, D, H, W)
     
     return img
 
