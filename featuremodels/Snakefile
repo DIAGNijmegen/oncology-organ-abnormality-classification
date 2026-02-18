@@ -3,14 +3,6 @@
 
 from util.snakemake_helpers import VALID_ORGANS
 
-def get_feature_output_paths_string(wildcards, model_name):
-    """Generate output paths string for shell command."""
-    paths = []
-    for organ_name in VALID_ORGANS:
-        output_path = OUTPUT_ROOT + f"/{model_name}/{organ_name}/{wildcards.split}/features/raw/{wildcards.scan_id}.npz"
-        paths.append(f"{organ_name}:{output_path}")
-    return ",".join(paths)
-
 rule compute_features_ctfm:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
@@ -39,7 +31,7 @@ rule compute_features_ctfm:
             /usr/local/bin/python3 -m featuremodels.scripts.ctfm \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "ctfm")}"
+                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
         """
 
 rule compute_features_curia:
@@ -71,7 +63,7 @@ rule compute_features_curia:
             /usr/local/bin/python3 -m featuremodels.scripts.curia \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "curia")}"
+                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
         """
 
 rule compute_features_umedpt:
@@ -102,7 +94,7 @@ rule compute_features_umedpt:
             /usr/local/bin/python3 -m featuremodels.scripts.umedpt \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "umedpt")}"
+                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
         """
 
 rule compute_features_spectre:
@@ -133,7 +125,7 @@ rule compute_features_spectre:
             /usr/local/bin/python3 -m featuremodels.scripts.spectre \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "spectre")}"
+                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
         """
 
 rule compute_features_tapct:
@@ -165,5 +157,5 @@ rule compute_features_tapct:
             /usr/local/bin/python3 -m featuremodels.scripts.tapct \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "tapct")}"
+                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
         """

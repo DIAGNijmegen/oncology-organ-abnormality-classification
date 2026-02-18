@@ -172,9 +172,6 @@ def process_scan_for_all_organs(
             if process_scan_for_organ(model, processor, scan_path, seg_path, organ_name, window_size, output_path):
                 processed_count += 1
     
-    if processed_count == 0:
-        raise RuntimeError(f"No features extracted for any organ in scan {scan_path}")
-    
     print(f"Successfully processed {processed_count}/{len(organ_names)} organs for scan")
 
 
