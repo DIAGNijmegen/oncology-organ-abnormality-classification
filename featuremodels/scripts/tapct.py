@@ -263,7 +263,7 @@ def main(args):
         if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
             raise PermissionError(f"Cannot write to output file: {output_path}")
     
-    # Window size for TAP-CT: 224x224x64
+    # Window size for TAP-CT: 224x224x12
     window_size = (224, 224, 12)
     
     # Load model
