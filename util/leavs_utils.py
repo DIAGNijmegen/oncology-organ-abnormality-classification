@@ -17,9 +17,9 @@ ORGAN_NAME_TO_LABEL = {
     "gallbladder": [4],
     "liver": [5],
     "stomach": [6],
-    "pancreas": [10],
-    "small_bowel": [55, 56],  # small bowel and duodenum
-    "large_bowel": [57],
+    "pancreas": [7],
+    "small_bowel": [18, 19],  # small bowel and duodenum
+    "large_bowel": [20],
 }
 
 # Reverse mapping for CSV column names
