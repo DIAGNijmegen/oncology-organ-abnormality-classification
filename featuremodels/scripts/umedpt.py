@@ -87,7 +87,7 @@ def extract_features_for_organ(
     return np.array(features), np.array(positions)
 
 
-def process_scan(
+def process_scan_for_organ(
     model,
     scan_path: str,
     seg_path: str,
@@ -101,7 +101,8 @@ def process_scan(
     # Get organ crop
     result = get_organ_crop(scan_path, seg_path, organ_name, padding=20)
     if result is None:
-        raise ValueError(f"Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}")
+        print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Skipping.")
+        return False
     
     organ_crop, bbox_origin = result
     
@@ -109,7 +110,8 @@ def process_scan(
     features, positions = extract_features_for_organ(model, organ_crop, window_size)
     
     if len(features) == 0:
-        raise RuntimeError(f"No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small.")
+        print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Skipping.")
+        return False
     
     # Save features with position information
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -120,6 +122,35 @@ def process_scan(
         bbox_origin=bbox_origin,
         organ_name=organ_name
     )
+    return True
+
+
+def process_scan_for_all_organs(
+    model,
+    scan_path: str,
+    seg_path: str,
+    organ_names: list,
+    window_size: tuple,
+    output_paths: dict
+):
+    """
+    Process a scan for all specified organs.
+    Saves one file per organ using the provided output paths.
+    
+    Args:
+        output_paths: Dict mapping organ_name to output_path
+    """
+    processed_count = 0
+    for organ_name in organ_names:
+        if organ_name in output_paths:
+            output_path = output_paths[organ_name]
+            if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
+                processed_count += 1
+    
+    if processed_count == 0:
+        raise RuntimeError(f"No features extracted for any organ in scan {scan_path}")
+    
+    print(f"Successfully processed {processed_count}/{len(organ_names)} organs for scan")
 
 
 def main(args):
@@ -140,20 +171,36 @@ def main(args):
     if not os.access(args.seg_path, os.R_OK):
         raise PermissionError(f"Cannot read segmentation file: {args.seg_path}")
     
-    # Ensure output directory can be created
-    output_dir = os.path.dirname(args.output_path)
-    if output_dir:
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-        except OSError as e:
-            raise OSError(f"Cannot create output directory {output_dir}: {e}")
+    # Parse organ names and output paths
+    output_paths = {}
+    organ_names = []
     
-    # Check write permissions for output
-    if os.path.exists(args.output_path) and not os.access(args.output_path, os.W_OK):
-        raise PermissionError(f"Cannot write to output file: {args.output_path}")
+    if args.output_paths:
+        for pair in args.output_paths.split(','):
+            if ':' not in pair:
+                raise ValueError(f"Invalid output path format: {pair}. Expected 'organ:path'")
+            organ_name, output_path = pair.split(':', 1)
+            organ_name = organ_name.strip()
+            output_path = output_path.strip()
+            output_paths[organ_name] = output_path
+            organ_names.append(organ_name)
+    else:
+        raise ValueError("--output-paths is required. Format: 'organ1:path1,organ2:path2'")
     
-    if not args.organ_name or not args.organ_name.strip():
-        raise ValueError(f"Organ name cannot be empty")
+    if not organ_names:
+        raise ValueError("No organs specified for processing")
+    
+    # Ensure output directories can be created
+    for output_path in output_paths.values():
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except OSError as e:
+                raise OSError(f"Cannot create output directory {output_dir}: {e}")
+        # Check write permissions
+        if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
+            raise PermissionError(f"Cannot write to output file: {output_path}")
     
     # Window size for UMedPT: 224x224
     window_size = (224, 224)
@@ -165,24 +212,36 @@ def main(args):
     except Exception as e:
         raise RuntimeError(f"Failed to load model: {e}") from e
     
-    # Process scan
-    print(f"Processing {args.scan_path} for organ {args.organ_name}...")
+    # Process scan for all organs
+    print(f"Processing {args.scan_path} for organs: {', '.join(organ_names)}...")
     try:
-        process_scan(model, args.scan_path, args.seg_path, args.organ_name, window_size, args.output_path)
+        process_scan_for_all_organs(
+            model, 
+            args.scan_path, 
+            args.seg_path, 
+            organ_names, 
+            window_size, 
+            output_paths
+        )
     except Exception as e:
-        raise RuntimeError(f"Failed to process scan {args.scan_path} for organ {args.organ_name}: {e}") from e
+        raise RuntimeError(f"Failed to process scan {args.scan_path}: {e}") from e
     
-    # Verify output was created
-    if not os.path.exists(args.output_path):
-        raise RuntimeError(f"Output file was not created: {args.output_path}")
+    # Verify at least one output was created
+    output_created = False
+    for output_path in output_paths.values():
+        if os.path.exists(output_path):
+            output_created = True
+            break
+    
+    if not output_created:
+        raise RuntimeError(f"No output files were created for scan")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UMedPT Feature Extraction for LEAVS")
     parser.add_argument("--scan-path", type=str, required=True, help="Path to scan file (.nii.gz)")
     parser.add_argument("--seg-path", type=str, required=True, help="Path to segmentation file (.nii.gz)")
-    parser.add_argument("--organ-name", type=str, required=True, help="Organ name (e.g., spleen)")
-    parser.add_argument("--output-path", type=str, required=True, help="Output path for features")
+    parser.add_argument("--output-paths", type=str, required=True, help="Comma-separated list of 'organ:path' pairs (e.g., 'spleen:/path/to/spleen.npz,liver:/path/to/liver.npz')")
     args = parser.parse_args()
 
     sys.exit(main(args))
