@@ -6,15 +6,13 @@ import sys
 
 import numpy as np
 import torch
-from monai.transforms import (
-    Compose,
-    EnsureTyped,
-    Orientationd,
-    EnsureChannelFirstd,
-)
+import nibabel as nib
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModel, AutoImageProcessor
+from PIL import Image
+from monai.transforms import Orientationd, Compose, EnsureTyped
+from monai.data import MetaTensor
 
 import argparse
 from util.util import fix_random_seeds
@@ -29,27 +27,51 @@ def load_model():
     return model, processor
 
 
+def reorient_crop_to_pl(crop: np.ndarray, scan_path: str) -> np.ndarray:
+    """
+    Reorient a 3D crop to PL (Posterior-Left) orientation using MONAI.
+    This ensures axial slices are in PL orientation as expected by Curia.
+    
+    Args:
+        crop: 3D numpy array (Z, Y, X)
+        scan_path: Path to original scan (used to get orientation info)
+    
+    Returns:
+        Reoriented 3D numpy array in PL orientation
+    """
+    # Load the original scan to get its affine matrix for orientation info
+    scan_img = nib.load(scan_path)
+    original_affine = scan_img.affine
+    
+    # Use MONAI's Orientationd transform with proper MetaTensor setup
+    transform = Orientationd(keys=["image"], axcodes="PLI")
+    
+    # Convert crop to MetaTensor with affine information
+    crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
+    crop_meta = MetaTensor(crop_tensor, affine=original_affine)
+    
+    # Apply reorientation transform
+    data_dict = {"image": crop_meta}
+    transformed = transform(data_dict)
+    reoriented = transformed["image"].squeeze(0).numpy()
+    
+    return reoriented
+
+
 def preprocess_slice(slice_2d: np.ndarray, processor) -> dict:
     """
     Preprocess a 2D slice for Curia model.
     Expected input: 256x256
+    Curia processor expects PIL Image or numpy array (H, W).
     """
-    transform = Compose([
-        Orientationd(keys=["image"], axcodes="PL"),
-        EnsureChannelFirstd(keys=["image"]),
-        EnsureTyped(keys=["image"]),
-    ])
+    # Convert to PIL Image for processor
+    # Normalize HU values (-1000 to 3000) to uint8 [0, 255] for PIL
+    img_clipped = np.clip(slice_2d, -1000, 3000)
+    img_normalized = ((img_clipped + 1000) / 4000 * 255).astype(np.uint8)
+    img_pil = Image.fromarray(img_normalized)
     
-    # Convert to MONAI format: (C, H, W)
-    slice_tensor = torch.from_numpy(slice_2d).unsqueeze(0).float()
-    data_dict = {"image": slice_tensor}
-    transformed = transform(data_dict)
-    
-    # Curia expects PIL Image or numpy array (H, W)
-    img = transformed["image"].squeeze(0).numpy()  # (H, W)
-    
-    # Use processor to prepare for model
-    model_input = processor(img)
+    # Use processor to prepare for model (processor handles model-specific preprocessing)
+    model_input = processor(img_pil)
     
     return model_input
 
@@ -71,6 +93,8 @@ def extract_features_for_organ(
     features = []
     positions = []
     
+    # Extract slices along axis=0 (which should be the I axis after PLI reorientation)
+    # This gives us axial slices in PL orientation as expected by Curia
     for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
         # Preprocess slice
         model_input = preprocess_slice(slice_2d, processor)
@@ -118,6 +142,10 @@ def process_scan_for_organ(
         return False
     
     organ_crop, bbox_origin = result
+    
+    # Reorient crop to PL orientation before extracting slices
+    # This ensures axial slices are in PL orientation as expected by Curia
+    organ_crop = reorient_crop_to_pl(organ_crop, scan_path)
     
     # Extract features
     features, positions = extract_features_for_organ(model, processor, organ_crop, window_size)
