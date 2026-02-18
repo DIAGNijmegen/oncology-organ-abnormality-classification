@@ -31,19 +31,12 @@ def get_feature_output_paths_string(wildcards, model_name):
         paths.append(f"{organ_name}:{output_path}")
     return ",".join(paths)
 
-# Model-specific wrapper functions
-def get_ctfm_outputs(wildcards):
-    return get_feature_outputs(wildcards, "ctfm")
-
-def get_ctfm_output_paths_string(wildcards):
-    return get_feature_output_paths_string(wildcards, "ctfm")
-
 rule compute_features_ctfm:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = get_ctfm_outputs
+        output_paths = lambda wildcards: get_feature_outputs(wildcards, "ctfm")
     resources:
         image = "jtagscherer/evalblocks-ctfm:0.0.1",
         qos="low",
@@ -58,21 +51,15 @@ rule compute_features_ctfm:
             /usr/local/bin/python3 -m featuremodels.scripts.ctfm \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {get_ctfm_output_paths_string}"
+                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "ctfm")}"
         """
-
-def get_curia_outputs(wildcards):
-    return get_feature_outputs(wildcards, "curia")
-
-def get_curia_output_paths_string(wildcards):
-    return get_feature_output_paths_string(wildcards, "curia")
 
 rule compute_features_curia:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = get_curia_outputs
+        output_paths = lambda wildcards: get_feature_outputs(wildcards, "curia")
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -88,21 +75,15 @@ rule compute_features_curia:
             /usr/local/bin/python3 -m featuremodels.scripts.curia \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {get_curia_output_paths_string}"
+                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "curia")}"
         """
-
-def get_umedpt_outputs(wildcards):
-    return get_feature_outputs(wildcards, "umedpt")
-
-def get_umedpt_output_paths_string(wildcards):
-    return get_feature_output_paths_string(wildcards, "umedpt")
 
 rule compute_features_umedpt:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = get_umedpt_outputs
+        output_paths = lambda wildcards: get_feature_outputs(wildcards, "umedpt")
     resources:
         image = "jtagscherer/evalblocks-umedpt:0.0.1",
         qos="low",
@@ -117,21 +98,15 @@ rule compute_features_umedpt:
             /usr/local/bin/python3 -m featuremodels.scripts.umedpt \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {get_umedpt_output_paths_string}"
+                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "umedpt")}"
         """
-
-def get_spectre_outputs(wildcards):
-    return get_feature_outputs(wildcards, "spectre")
-
-def get_spectre_output_paths_string(wildcards):
-    return get_feature_output_paths_string(wildcards, "spectre")
 
 rule compute_features_spectre:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = get_spectre_outputs
+        output_paths = lambda wildcards: get_feature_outputs(wildcards, "spectre")
     resources:
         image = "jtagscherer/evalblocks-spectre:0.0.1",
         qos="low",
@@ -146,21 +121,15 @@ rule compute_features_spectre:
             /usr/local/bin/python3 -m featuremodels.scripts.spectre \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {get_spectre_output_paths_string}"
+                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "spectre")}"
         """
-
-def get_tapct_outputs(wildcards):
-    return get_feature_outputs(wildcards, "tapct")
-
-def get_tapct_output_paths_string(wildcards):
-    return get_feature_output_paths_string(wildcards, "tapct")
 
 rule compute_features_tapct:
     input:
         scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
         seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
     output:
-        output_paths = get_tapct_outputs
+        output_paths = lambda wildcards: get_feature_outputs(wildcards, "tapct")
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -176,5 +145,5 @@ rule compute_features_tapct:
             /usr/local/bin/python3 -m featuremodels.scripts.tapct \
                 --scan-path {input.scan_path} \
                 --seg-path {input.seg_path} \
-                --output-paths {get_tapct_output_paths_string}"
+                --output-paths {lambda wildcards: get_feature_output_paths_string(wildcards, "tapct")}"
         """
