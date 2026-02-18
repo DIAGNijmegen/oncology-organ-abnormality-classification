@@ -164,10 +164,23 @@ def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
     return annotations
 
 
-def get_organ_crop(scan_path: str, seg_path: str, organ_name: str) -> Optional[Tuple[np.ndarray, Tuple[int, int, int]]]:
+def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, window_size: Tuple[int, ...]) -> Optional[Tuple[np.ndarray, Tuple[int, int, int]]]:
     """
     Extract organ crop from scan using segmentation mask.
-    Returns: (organ_crop, bbox_origin) or None if organ not found
+    
+    If the organ bounding box is smaller than window_size, returns a crop of exactly
+    window_size centered on the organ. The scan is padded with -1024 before cropping
+    to handle cases where the crop extends beyond scan boundaries.
+    
+    Args:
+        scan_path: Path to scan NIfTI file
+        seg_path: Path to segmentation NIfTI file
+        organ_name: Name of the organ to extract
+        window_size: Minimum crop size as (z, y, x) tuple for 3D or (y, x) tuple for 2D
+    
+    Returns:
+        (organ_crop, bbox_origin) or None if organ not found
+        bbox_origin is the original mask bounding box origin (before padding/centering)
     """
     # Load scan and segmentation
     scan_img = nib.load(scan_path)
@@ -192,18 +205,67 @@ def get_organ_crop(scan_path: str, seg_path: str, organ_name: str) -> Optional[T
     if not np.any(organ_mask):
         return None
     
-    # Get bounding box
+    # Get bounding box from mask
     coords = np.where(organ_mask)
     if len(coords[0]) == 0:
         return None
     
-    z_min, z_max = coords[0].min(), coords[0].max()
-    y_min, y_max = coords[1].min(), coords[1].max()
-    x_min, x_max = coords[2].min(), coords[2].max()
+    z_min_mask, z_max_mask = coords[0].min(), coords[0].max()
+    y_min_mask, y_max_mask = coords[1].min(), coords[1].max()
+    x_min_mask, x_max_mask = coords[2].min(), coords[2].max()
     
-    # Crop (no padding)
-    organ_crop = scan_data[z_min:z_max+1, y_min:y_max+1, x_min:x_max+1]
-    bbox_origin = (z_min, y_min, x_min)
+    # Convert window_size to 3D: handle both 2D (y, x) and 3D (z, y, x) inputs
+    if len(window_size) == 2:
+        # 2D window_size: use max dimension for z
+        window_z = max(window_size)
+        window_y, window_x = window_size
+    else:
+        window_z, window_y, window_x = window_size
+    
+    # Calculate organ center
+    z_center = (z_min_mask + z_max_mask) // 2
+    y_center = (y_min_mask + y_max_mask) // 2
+    x_center = (x_min_mask + x_max_mask) // 2
+    
+    # Determine crop size: use window_size if mask bbox is smaller, otherwise use mask bbox
+    mask_z_size = z_max_mask - z_min_mask + 1
+    mask_y_size = y_max_mask - y_min_mask + 1
+    mask_x_size = x_max_mask - x_min_mask + 1
+    
+    crop_z_size = max(mask_z_size, window_z)
+    crop_y_size = max(mask_y_size, window_y)
+    crop_x_size = max(mask_x_size, window_x)
+    
+    # Calculate crop bounds centered on organ
+    z_min_crop = z_center - crop_z_size // 2
+    z_max_crop = z_min_crop + crop_z_size - 1
+    y_min_crop = y_center - crop_y_size // 2
+    y_max_crop = y_min_crop + crop_y_size - 1
+    x_min_crop = x_center - crop_x_size // 2
+    x_max_crop = x_min_crop + crop_x_size - 1
+    
+    # Calculate padding: use max window dimension for all sides
+    max_padding = max(window_z, window_y, window_x)
+    
+    # Pad scan with -1024
+    scan_data = np.pad(
+        scan_data,
+        ((max_padding, max_padding), (max_padding, max_padding), (max_padding, max_padding)),
+        mode='constant',
+        constant_values=-1024
+    )
+    
+    # Adjust crop coordinates for padding
+    z_min_crop += max_padding
+    z_max_crop += max_padding
+    y_min_crop += max_padding
+    y_max_crop += max_padding
+    x_min_crop += max_padding
+    x_max_crop += max_padding
+    
+    # Crop
+    organ_crop = scan_data[z_min_crop:z_max_crop+1, y_min_crop:y_max_crop+1, x_min_crop:x_max_crop+1]
+    bbox_origin = (z_min_mask, y_min_mask, x_min_mask)
     
     return organ_crop, bbox_origin
 
