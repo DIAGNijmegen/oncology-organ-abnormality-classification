@@ -10,8 +10,7 @@ import nibabel as nib
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModel, AutoImageProcessor
-from PIL import Image
-from monai.transforms import Orientationd, Compose, EnsureTyped
+from monai.transforms import Orientationd
 from monai.data import MetaTensor
 
 import argparse
@@ -62,16 +61,14 @@ def preprocess_slice(slice_2d: np.ndarray, processor) -> dict:
     """
     Preprocess a 2D slice for Curia model.
     Expected input: 256x256
-    Curia processor expects PIL Image or numpy array (H, W).
+    Curia processor expects numpy array (H, W).
     """
-    # Convert to PIL Image for processor
-    # Normalize HU values (-1000 to 3000) to uint8 [0, 255] for PIL
+    # Normalize HU values (-1000 to 3000) to [0, 1] range for processor
     img_clipped = np.clip(slice_2d, -1000, 3000)
-    img_normalized = ((img_clipped + 1000) / 4000 * 255).astype(np.uint8)
-    img_pil = Image.fromarray(img_normalized)
+    img_normalized = (img_clipped + 1000) / 4000
     
     # Use processor to prepare for model (processor handles model-specific preprocessing)
-    model_input = processor(img_pil)
+    model_input = processor(img_normalized)
     
     return model_input
 
