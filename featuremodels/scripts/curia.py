@@ -35,7 +35,7 @@ def preprocess_slice(slice_2d: np.ndarray, processor) -> dict:
     Expected input: 256x256
     """
     transform = Compose([
-        Orientationd(keys=["image"], axcodes="PLS"),
+        Orientationd(keys=["image"], axcodes="PL"),
         EnsureChannelFirstd(keys=["image"]),
         EnsureTyped(keys=["image"]),
     ])
