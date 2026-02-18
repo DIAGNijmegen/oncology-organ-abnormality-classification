@@ -264,7 +264,7 @@ def main(args):
             raise PermissionError(f"Cannot write to output file: {output_path}")
     
     # Window size for TAP-CT: 224x224x64
-    window_size = (224, 224, 64)
+    window_size = (224, 224, 12)
     
     # Load model
     print("Loading model...")
