@@ -230,22 +230,6 @@ def main(args):
     if not os.access(args.seg_path, os.R_OK):
         raise PermissionError(f"Cannot read segmentation file: {args.seg_path}")
     
-    # Ensure output directories can be created
-    for output_path in output_paths.values():
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-            except OSError as e:
-                raise OSError(f"Cannot create output directory {output_dir}: {e}")
-        # Check write permissions
-        if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
-            raise PermissionError(f"Cannot write to output file: {output_path}")
-    
-    # Check write permissions for output
-    if os.path.exists(args.output_path) and not os.access(args.output_path, os.W_OK):
-        raise PermissionError(f"Cannot write to output file: {args.output_path}")
-    
     # Parse organ names and output paths
     output_paths = {}
     organ_names = []
