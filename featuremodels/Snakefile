@@ -146,7 +146,7 @@ rule compute_features_tapct:
         small_bowel = OUTPUT_ROOT + "/tapct/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/tapct/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/tapct/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels.tapct"
+    group: "featuremodels_tapct"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
