@@ -8,21 +8,34 @@ leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_va
 get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 
+def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
+    """Get all batch IDs for a given model/split/organ combination - harmonized with feature models and aggregation."""
+    scans = get_scans_for_split_and_organ(split, organ_name)
+    scan_batches = create_batches(scans, BATCH_SIZE)
+    batch_ids = []
+    for batch_idx in range(len(scan_batches)):
+        batch_id = get_batch_id(batch_idx, len(scan_batches))
+        batch_ids.append(batch_id)
+    return batch_ids
+
+
+def get_aggregation_progress_files(wildcards):
+    """Get all aggregation progress files for a given model/organ/aggregation_method combination."""
+    progress_files = []
+    for split in ["training", "validation", "test"]:
+        batch_ids = get_batch_ids_for_model_split_organ(wildcards.model_name, split, wildcards.organ_name)
+        for batch_id in batch_ids:
+            if wildcards.aggregation_method == "mean":
+                progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_mean.done"
+            else:  # max
+                progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_max.done"
+            progress_files.append(progress_file)
+    return progress_files
+
+
 rule evaluate_knn:
     input:
-        # Get all feature files for this organ/model/aggregation_method combination
-        feature_files_training = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/training/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("training", wildcards.organ_name)
-        ],
-        feature_files_validation = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/validation/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("validation", wildcards.organ_name)
-        ],
-        feature_files_test = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/test/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("test", wildcards.organ_name)
-        ]
+        aggregation_progress_files = get_aggregation_progress_files
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/knn.json"
     group: "evaluation_knn"
@@ -55,19 +68,7 @@ rule evaluate_knn:
 
 rule evaluate_linear_probing:
     input:
-        # Get all feature files for this organ/model/aggregation_method combination
-        feature_files_training = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/training/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("training", wildcards.organ_name)
-        ],
-        feature_files_validation = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/validation/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("validation", wildcards.organ_name)
-        ],
-        feature_files_test = lambda wildcards: [
-            OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/test/features/aggregated/{wildcards.aggregation_method}/{scan_id}.npz"
-            for scan_id in get_scans_for_split_and_organ("test", wildcards.organ_name)
-        ]
+        aggregation_progress_files = get_aggregation_progress_files
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/linear.json",
         output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/")
