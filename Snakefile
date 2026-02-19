@@ -54,6 +54,7 @@ def get_batch_id(batch_idx, total_batches):
     return f"batch_{str(batch_idx).zfill(max_digits)}"
 
 
+output_files = []
 for experiment_name, experiment in EXPERIMENTS.items():
     for organ_name in VALID_ORGANS:
         for evaluation_mode in experiment['evaluation_modes']:
