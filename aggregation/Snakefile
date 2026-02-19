@@ -4,10 +4,10 @@
 from util.snakemake_helpers import VALID_ORGANS
 
 
-def get_batch_ids_for_model_split_organ_agg(model_name, split, organ_name, aggregation_method):
-    """Get all batch IDs for a given model/split/organ/aggregation_method combination."""
+def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
+    """Get all batch IDs for a given model/split/organ combination - harmonized with feature models."""
     scans = get_scans_for_split_and_organ(split, organ_name)
-    scan_batches = create_batches(scans, AGGREGATION_BATCH_SIZE)
+    scan_batches = create_batches(scans, BATCH_SIZE)
     batch_ids = []
     for batch_idx in range(len(scan_batches)):
         batch_id = get_batch_id(batch_idx, len(scan_batches))
@@ -15,17 +15,17 @@ def get_batch_ids_for_model_split_organ_agg(model_name, split, organ_name, aggre
     return batch_ids
 
 
-def get_scans_for_batch_agg(model_name, split, organ_name, aggregation_method, batch_id):
-    """Get scan IDs for a specific batch."""
+def get_scans_for_batch(model_name, split, organ_name, batch_id):
+    """Get scan IDs for a specific batch - harmonized with feature models."""
     scans = get_scans_for_split_and_organ(split, organ_name)
-    scan_batches = create_batches(scans, AGGREGATION_BATCH_SIZE)
+    scan_batches = create_batches(scans, BATCH_SIZE)
     batch_idx = int(batch_id.split("_")[1])
     return scan_batches[batch_idx]
 
 
 def get_input_paths_for_batch(wildcards):
-    """Get input feature paths for a batch."""
-    batch_scans = get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
+    """Get input feature paths for a batch - harmonized with feature models."""
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
     
     input_paths = []
     for scan_id in batch_scans:
@@ -34,9 +34,14 @@ def get_input_paths_for_batch(wildcards):
     return input_paths
 
 
+def get_progress_file(wildcards):
+    """Get the progress file that indicates feature model completion."""
+    return OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{wildcards.split}/{wildcards.organ_name}/{wildcards.batch_id}.done"
+
+
 def get_output_paths_for_batch_key_mean(model_name, split, organ_name, aggregation_method, batch_id):
     """Get all output paths for a batch for mean aggregation - returns list."""
-    batch_scans = get_scans_for_batch_agg(model_name, split, organ_name, aggregation_method, batch_id)
+    batch_scans = get_scans_for_batch(model_name, split, organ_name, batch_id)
     
     output_paths = []
     for scan_id in batch_scans:
@@ -47,7 +52,7 @@ def get_output_paths_for_batch_key_mean(model_name, split, organ_name, aggregati
 
 def get_output_paths_for_batch_key_max(model_name, split, organ_name, aggregation_method, batch_id):
     """Get all output paths for a batch for max aggregation - returns list."""
-    batch_scans = get_scans_for_batch_agg(model_name, split, organ_name, aggregation_method, batch_id)
+    batch_scans = get_scans_for_batch(model_name, split, organ_name, batch_id)
     
     output_paths = []
     for scan_id in batch_scans:
@@ -58,7 +63,7 @@ def get_output_paths_for_batch_key_max(model_name, split, organ_name, aggregatio
 
 def get_input_output_pairs_mean(wildcards):
     """Get input-output pairs for mean aggregation."""
-    batch_scans = get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
     
     pairs = []
     for scan_id in batch_scans:
@@ -70,7 +75,7 @@ def get_input_output_pairs_mean(wildcards):
 
 def get_input_output_pairs_max(wildcards):
     """Get input-output pairs for max aggregation."""
-    batch_scans = get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
     
     pairs = []
     for scan_id in batch_scans:
@@ -92,7 +97,7 @@ for experiment_name, experiment in EXPERIMENTS.items():
     for aggregation_method in experiment['aggregation_methods']:
         for organ_name in VALID_ORGANS:
             for split in ["training", "validation", "test"]:
-                batch_ids = get_batch_ids_for_model_split_organ_agg(experiment_name, split, organ_name, aggregation_method)
+                batch_ids = get_batch_ids_for_model_split_organ(experiment_name, split, organ_name)
                 for batch_id in batch_ids:
                     key = (experiment_name, split, organ_name, aggregation_method, batch_id)
                     batch_outputs_mean[key] = get_output_paths_for_batch_key_mean(experiment_name, split, organ_name, aggregation_method, batch_id)
@@ -101,15 +106,10 @@ for experiment_name, experiment in EXPERIMENTS.items():
 
 rule aggregate_mean:
     input:
+        progress_file = get_progress_file,
         input_paths = get_input_paths_for_batch
     output:
-        output_paths = expand(
-            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz",
-            model_name = lambda wildcards: [wildcards.model_name],
-            split = lambda wildcards: [wildcards.split],
-            organ_name = lambda wildcards: [wildcards.organ_name],
-            scan_id = lambda wildcards: get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
-        )
+        progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_mean.done"
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
@@ -126,20 +126,17 @@ rule aggregate_mean:
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.mean \
                 --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
-                --output-features {','.join([pair[1] for pair in params.input_output_pairs])}"
+                --output-features {','.join([pair[1] for pair in params.input_output_pairs])} && \
+            mkdir -p $(dirname {output.progress_file_agg}) && \
+            touch {output.progress_file_agg}"
         """
 
 rule aggregate_max:
     input:
+        progress_file = get_progress_file,
         input_paths = get_input_paths_for_batch
     output:
-        output_paths = expand(
-            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz",
-            model_name = lambda wildcards: [wildcards.model_name],
-            split = lambda wildcards: [wildcards.split],
-            organ_name = lambda wildcards: [wildcards.organ_name],
-            scan_id = lambda wildcards: get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
-        )
+        progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_max.done"
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
@@ -156,5 +153,7 @@ rule aggregate_max:
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.max \
                 --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
-                --output-features {','.join([pair[1] for pair in params.input_output_pairs])}"
+                --output-features {','.join([pair[1] for pair in params.input_output_pairs])} && \
+            mkdir -p $(dirname {output.progress_file_agg}) && \
+            touch {output.progress_file_agg}"
         """

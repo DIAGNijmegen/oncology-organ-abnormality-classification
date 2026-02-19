@@ -7,7 +7,7 @@ from util.snakemake_helpers import VALID_ORGANS
 def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
     """Get all batch IDs for a given model/split/organ combination."""
     scans = get_scans_for_split_and_organ(split, organ_name)
-    scan_batches = create_batches(scans, FEATURE_MODEL_BATCH_SIZE)
+    scan_batches = create_batches(scans, BATCH_SIZE)
     batch_ids = []
     for batch_idx in range(len(scan_batches)):
         batch_id = get_batch_id(batch_idx, len(scan_batches))
@@ -18,7 +18,7 @@ def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
 def get_scans_for_batch(model_name, split, organ_name, batch_id):
     """Get scan IDs for a specific batch."""
     scans = get_scans_for_split_and_organ(split, organ_name)
-    scan_batches = create_batches(scans, FEATURE_MODEL_BATCH_SIZE)
+    scan_batches = create_batches(scans, BATCH_SIZE)
     batch_idx = int(batch_id.split("_")[1])
     return scan_batches[batch_idx]
 
@@ -149,13 +149,7 @@ rule compute_features:
         scan_paths = get_scan_paths_for_batch,
         seg_paths = get_seg_paths_for_batch
     output:
-        output_paths = expand(
-            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz",
-            model_name = lambda wildcards: [wildcards.model_name],
-            split = lambda wildcards: [wildcards.split],
-            organ_name = VALID_ORGANS,
-            scan_id = lambda wildcards: get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
-        )
+        progress_file = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}.done"
     group: lambda wildcards: get_model_resources(wildcards)["group"]
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],
@@ -175,5 +169,7 @@ rule compute_features:
             /usr/local/bin/python3 -m {params.script_module} \
                 --scan-paths {','.join(input.scan_paths)} \
                 --seg-paths {','.join(input.seg_paths)} \
-                --output-paths {format_output_paths_arg(params.output_paths_dict)}"
+                --output-paths {format_output_paths_arg(params.output_paths_dict)} && \
+            mkdir -p $(dirname {output.progress_file}) && \
+            touch {output.progress_file}"
             """

@@ -19,9 +19,8 @@ OUTPUT_ROOT = os.getenv("OUTPUT_ROOT")
 if OUTPUT_ROOT is None:
     raise ValueError("OUTPUT_ROOT environment variable is not set. Please set it to the desired root of your outputs.")
 
-# Batch size configuration
-FEATURE_MODEL_BATCH_SIZE = int(os.getenv("FEATURE_MODEL_BATCH_SIZE", "100"))
-AGGREGATION_BATCH_SIZE = int(os.getenv("AGGREGATION_BATCH_SIZE", "100"))
+# Batch size configuration - harmonized for feature models and aggregation
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
 
 import json
 
