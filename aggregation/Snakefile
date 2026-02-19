@@ -23,17 +23,6 @@ def get_scans_for_batch(model_name, split, organ_name, batch_id):
     return scan_batches[batch_idx]
 
 
-def get_input_paths_for_batch(wildcards):
-    """Get input feature paths for a batch - harmonized with feature models."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
-    
-    input_paths = []
-    for scan_id in batch_scans:
-        input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
-        input_paths.append(input_path)
-    return input_paths
-
-
 def get_progress_file(wildcards):
     """Get the progress file that indicates feature model completion."""
     return OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{wildcards.split}/{wildcards.organ_name}/{wildcards.batch_id}_features.done"
@@ -130,8 +119,7 @@ for experiment_name, experiment in EXPERIMENTS.items():
 
 rule aggregate_mean:
     input:
-        progress_file = get_progress_file,
-        input_paths = get_input_paths_for_batch
+        progress_file = get_progress_file
     output:
         progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_mean.done"
     group: "aggregation"
@@ -158,8 +146,7 @@ rule aggregate_mean:
 
 rule aggregate_max:
     input:
-        progress_file = get_progress_file,
-        input_paths = get_input_paths_for_batch
+        progress_file = get_progress_file
     output:
         progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_max.done"
     group: "aggregation"
