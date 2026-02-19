@@ -74,7 +74,7 @@ def extract_features_for_organ(
         # Extract features
         with torch.inference_mode():
             # UMedPT expects (B, C, H, W) format
-            model_input = slice_tensor.unsqueeze(0).cuda()  # (1, C, H, W)
+            model_input = slice_tensor.expand(3, 224, 224).unsqueeze(0).cuda()  # (1, 3, H, W)
             feature_pyramid = model["encoder"](model_input.to(model.device))
             feature = model["squeezer"](feature_pyramid)[1].detach().cpu().numpy()
         
