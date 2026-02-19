@@ -54,19 +54,7 @@ def get_batch_id(batch_idx, total_batches):
     return f"batch_{str(batch_idx).zfill(max_digits)}"
 
 
-def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
-    """Get all batch IDs for a given model/split/organ combination - harmonized with feature models and aggregation."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
-    scan_batches = create_batches(scans, BATCH_SIZE)
-    batch_ids = []
-    for batch_idx in range(len(scan_batches)):
-        batch_id = get_batch_id(batch_idx, len(scan_batches))
-        batch_ids.append(batch_id)
-    return batch_ids
-
-
 output_files = []
-# Add evaluation metrics
 for experiment_name, experiment in EXPERIMENTS.items():
     for organ_name in VALID_ORGANS:
         for evaluation_mode in experiment['evaluation_modes']:
@@ -74,17 +62,6 @@ for experiment_name, experiment in EXPERIMENTS.items():
                 output_files.append(
                     OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
                 )
-
-# Add aggregation progress files
-for experiment_name, experiment in EXPERIMENTS.items():
-    for aggregation_method in experiment['aggregation_methods']:
-        for organ_name in VALID_ORGANS:
-            for split in ["training", "validation", "test"]:
-                batch_ids = get_batch_ids_for_model_split_organ(experiment_name, split, organ_name)
-                for batch_id in batch_ids:
-                    output_files.append(
-                        OUTPUT_ROOT + f"/{experiment_name}/progress/{split}/{organ_name}/{batch_id}_{aggregation_method}.done"
-                    )
 
 rule all:
     input: output_files

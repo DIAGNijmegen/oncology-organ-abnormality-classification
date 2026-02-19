@@ -159,7 +159,7 @@ rule compute_features:
         scan_paths = get_scan_paths_for_batch,
         seg_paths = get_seg_paths_for_batch
     output:
-        progress_file = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}.done"
+        progress_file = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_features.done"
     group: lambda wildcards: get_model_resources(wildcards)["group"]
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],
