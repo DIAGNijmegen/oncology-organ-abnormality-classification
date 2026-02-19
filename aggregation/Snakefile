@@ -85,6 +85,30 @@ def get_input_output_pairs_max(wildcards):
     return pairs
 
 
+def join_input_features_mean(wildcards):
+    """Join input feature paths for mean aggregation."""
+    pairs = get_input_output_pairs_mean(wildcards)
+    return ",".join([pair[0] for pair in pairs])
+
+
+def join_output_features_mean(wildcards):
+    """Join output feature paths for mean aggregation."""
+    pairs = get_input_output_pairs_mean(wildcards)
+    return ",".join([pair[1] for pair in pairs])
+
+
+def join_input_features_max(wildcards):
+    """Join input feature paths for max aggregation."""
+    pairs = get_input_output_pairs_max(wildcards)
+    return ",".join([pair[0] for pair in pairs])
+
+
+def join_output_features_max(wildcards):
+    """Join output feature paths for max aggregation."""
+    pairs = get_input_output_pairs_max(wildcards)
+    return ",".join([pair[1] for pair in pairs])
+
+
 # Pre-generate outputs for each batch combination
 # Need to get model names and aggregation methods from experiments
 import json
@@ -119,14 +143,15 @@ rule aggregate_mean:
         mem_mb=16000,
         time="1-00:00:00"
     params:
-        input_output_pairs = get_input_output_pairs_mean
+        input_features_str = join_input_features_mean,
+        output_features_str = join_output_features_mean
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.mean \
-                --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
-                --output-features {','.join([pair[1] for pair in params.input_output_pairs])} && \
+                --input-features {params.input_features_str} \
+                --output-features {params.output_features_str} && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """
@@ -146,14 +171,15 @@ rule aggregate_max:
         mem_mb=16000,
         time="1-00:00:00"
     params:
-        input_output_pairs = get_input_output_pairs_max
+        input_features_str = join_input_features_max,
+        output_features_str = join_output_features_max
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.max \
-                --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
-                --output-features {','.join([pair[1] for pair in params.input_output_pairs])} && \
+                --input-features {params.input_features_str} \
+                --output-features {params.output_features_str} && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """

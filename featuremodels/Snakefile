@@ -83,6 +83,16 @@ def format_output_paths_arg(output_paths_dict):
     return ",".join(parts)
 
 
+def join_scan_paths(wildcards):
+    """Join scan paths with comma."""
+    return ",".join(get_scan_paths_for_batch(wildcards))
+
+
+def join_seg_paths(wildcards):
+    """Join segmentation paths with comma."""
+    return ",".join(get_seg_paths_for_batch(wildcards))
+
+
 def get_model_resources(wildcards):
     """Get resources based on model name."""
     model_resources = {
@@ -161,15 +171,18 @@ rule compute_features:
     params:
         output_paths_dict = get_output_paths_dict_for_batch,
         script_module = get_model_script_command,
-        hf_home_env = get_hf_home_env
+        hf_home_env = get_hf_home_env,
+        scan_paths_str = join_scan_paths,
+        seg_paths_str = join_seg_paths,
+        output_paths_str = lambda wildcards: format_output_paths_arg(get_output_paths_dict_for_batch(wildcards))
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "{params.hf_home_env}cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m {params.script_module} \
-                --scan-paths {','.join(input.scan_paths)} \
-                --seg-paths {','.join(input.seg_paths)} \
-                --output-paths {format_output_paths_arg(params.output_paths_dict)} && \
+                --scan-paths {params.scan_paths_str} \
+                --seg-paths {params.seg_paths_str} \
+                --output-paths {params.output_paths_str} && \
             mkdir -p $(dirname {output.progress_file}) && \
             touch {output.progress_file}"
             """
