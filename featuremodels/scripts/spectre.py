@@ -6,14 +6,15 @@ import sys
 
 import numpy as np
 import torch
+import nibabel as nib
 from monai.transforms import (
     Compose,
     EnsureTyped,
     Orientationd,
     ScaleIntensityRanged,
     Spacingd,
-    CenterSpatialCropd,
 )
+from monai.data import MetaTensor
 from tqdm import tqdm
 
 from spectre import SpectreImageFeatureExtractor, MODEL_CONFIGS
@@ -30,10 +31,41 @@ def load_model():
     return model
 
 
+def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
+    """
+    Apply spacing (0.5, 0.5, 1.0) to the entire organ crop using MONAI.
+    This should be done before extracting patches to avoid changing patch dimensionality.
+    
+    Args:
+        crop: 3D numpy array (Z, Y, X)
+        scan_path: Path to original scan (used to get spacing info)
+    
+    Returns:
+        Resampled 3D numpy array with spacing (0.5, 0.5, 1.0)
+    """
+    # Load the original scan to get its affine matrix for spacing info
+    scan_img = nib.load(scan_path)
+    original_affine = scan_img.affine
+    
+    # Use MONAI's Spacingd transform with proper MetaTensor setup
+    transform = Spacingd(keys=["image"], pixdim=(0.5, 0.5, 1.0), mode="bilinear")
+    
+    # Convert crop to MetaTensor with affine information
+    crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
+    crop_meta = MetaTensor(crop_tensor, affine=original_affine)
+    
+    # Apply spacing transform
+    data_dict = {"image": crop_meta}
+    transformed = transform(data_dict)
+    resampled = transformed["image"].squeeze(0).numpy()
+    
+    return resampled
+
+
 def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
     """
     Preprocess a 3D patch for SPECTRE model.
-    Expected input: 256x256x128
+    Expected input: 256x256x128 (after spacing has been applied to the crop)
     """
     transform = Compose([
         Orientationd(keys=["image"], axcodes="RAS"),
@@ -45,8 +77,6 @@ def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
             b_max=1.0,
             clip=True,
         ),
-        Spacingd(keys=["image"], pixdim=(0.5, 0.5, 1.0), mode=("bilinear")),
-        CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 384)),
         EnsureTyped(keys=["image"], dtype=torch.float32),
     ])
     
@@ -125,6 +155,9 @@ def process_scan_for_organ(
         return False
     
     organ_crop, bbox_origin = result
+    
+    # Apply spacing to the entire crop before extracting patches
+    organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
     
     # Extract features
     features, positions = extract_features_for_organ(model, organ_crop, window_size)
