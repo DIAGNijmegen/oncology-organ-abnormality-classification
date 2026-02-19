@@ -170,94 +170,141 @@ def process_scan_for_all_organs(
     print(f"Successfully processed {processed_count}/{len(organ_names)} organs for scan")
 
 
+def extract_scan_id_from_path(path):
+    """Extract scan_id from output path like .../features/raw/{scan_id}.npz"""
+    basename = os.path.basename(path)
+    if basename.endswith('.npz'):
+        return basename[:-4]  # Remove .npz extension
+    return None
+
+
 def main(args):
     fix_random_seeds(getattr(args, "seed", 0))
     
+    # Parse scan paths and seg paths (comma-separated)
+    if not args.scan_paths:
+        raise ValueError("--scan-paths is required")
+    if not args.seg_paths:
+        raise ValueError("--seg-paths is required")
+    
+    scan_paths = [p.strip() for p in args.scan_paths.split(',')]
+    seg_paths = [p.strip() for p in args.seg_paths.split(',')]
+    
+    if len(scan_paths) != len(seg_paths):
+        raise ValueError(f"Number of scan paths ({len(scan_paths)}) must match number of seg paths ({len(seg_paths)})")
+    
     # Validate inputs early
-    if not os.path.exists(args.scan_path):
-        raise FileNotFoundError(f"Scan file not found: {args.scan_path}")
-    if not os.path.isfile(args.scan_path):
-        raise ValueError(f"Scan path is not a file: {args.scan_path}")
-    if not os.access(args.scan_path, os.R_OK):
-        raise PermissionError(f"Cannot read scan file: {args.scan_path}")
+    for scan_path in scan_paths:
+        if not os.path.exists(scan_path):
+            raise FileNotFoundError(f"Scan file not found: {scan_path}")
+        if not os.path.isfile(scan_path):
+            raise ValueError(f"Scan path is not a file: {scan_path}")
+        if not os.access(scan_path, os.R_OK):
+            raise PermissionError(f"Cannot read scan file: {scan_path}")
     
-    if not os.path.exists(args.seg_path):
-        raise FileNotFoundError(f"Segmentation file not found: {args.seg_path}")
-    if not os.path.isfile(args.seg_path):
-        raise ValueError(f"Segmentation path is not a file: {args.seg_path}")
-    if not os.access(args.seg_path, os.R_OK):
-        raise PermissionError(f"Cannot read segmentation file: {args.seg_path}")
+    for seg_path in seg_paths:
+        if not os.path.exists(seg_path):
+            raise FileNotFoundError(f"Segmentation file not found: {seg_path}")
+        if not os.path.isfile(seg_path):
+            raise ValueError(f"Segmentation path is not a file: {seg_path}")
+        if not os.access(seg_path, os.R_OK):
+            raise PermissionError(f"Cannot read segmentation file: {seg_path}")
     
-    # Parse organ names and output paths
-    output_paths = {}
-    organ_names = []
+    # Parse output paths
+    if not args.output_paths:
+        raise ValueError("--output-paths is required. Format: 'organ1:path1,organ2:path2,...'")
     
-    if args.output_paths:
-        for pair in args.output_paths.split(','):
-            if ':' not in pair:
-                raise ValueError(f"Invalid output path format: {pair}. Expected 'organ:path'")
-            organ_name, output_path = pair.split(':', 1)
-            organ_name = organ_name.strip()
-            output_path = output_path.strip()
-            output_paths[organ_name] = output_path
-            organ_names.append(organ_name)
-    else:
-        raise ValueError("--output-paths is required. Format: 'organ1:path1,organ2:path2'")
+    # Parse all output paths - format is organ:path pairs, organized by organ first, then scan
+    all_output_pairs = []
+    for pair in args.output_paths.split(','):
+        if ':' not in pair:
+            raise ValueError(f"Invalid output path format: {pair}. Expected 'organ:path'")
+        organ_name, output_path = pair.split(':', 1)
+        organ_name = organ_name.strip()
+        output_path = output_path.strip()
+        scan_id = extract_scan_id_from_path(output_path)
+        if scan_id is None:
+            raise ValueError(f"Could not extract scan_id from path: {output_path}")
+        all_output_pairs.append((scan_id, organ_name, output_path))
+    
+    # Get unique organ names and scan IDs
+    organ_names = sorted(set(organ_name for _, organ_name, _ in all_output_pairs))
+    scan_ids = sorted(set(scan_id for scan_id, _, _ in all_output_pairs))
     
     if not organ_names:
         raise ValueError("No organs specified for processing")
     
+    if len(scan_ids) != len(scan_paths):
+        raise ValueError(f"Number of unique scan IDs in output paths ({len(scan_ids)}) does not match number of scan paths ({len(scan_paths)})")
+    
+    # Group output paths by scan_id
+    scan_outputs = {}
+    for scan_id, organ_name, output_path in all_output_pairs:
+        if scan_id not in scan_outputs:
+            scan_outputs[scan_id] = {}
+        scan_outputs[scan_id][organ_name] = output_path
+    
     # Ensure output directories can be created
-    for output_path in output_paths.values():
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-            except OSError as e:
-                raise OSError(f"Cannot create output directory {output_dir}: {e}")
-        # Check write permissions
-        if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
-            raise PermissionError(f"Cannot write to output file: {output_path}")
+    for scan_id, output_paths_dict in scan_outputs.items():
+        for output_path in output_paths_dict.values():
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                except OSError as e:
+                    raise OSError(f"Cannot create output directory {output_dir}: {e}")
+            # Check write permissions
+            if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
+                raise PermissionError(f"Cannot write to output file: {output_path}")
     
     # Window size for UMedPT: 224x224
     window_size = (224, 224)
     
-    # Load model
+    # Load model once for the entire batch
     print("Loading model...")
     try:
         model = load_model()
     except Exception as e:
         raise RuntimeError(f"Failed to load model: {e}") from e
     
-    # Process scan for all organs
-    try:
-        process_scan_for_all_organs(
-            model, 
-            args.scan_path, 
-            args.seg_path, 
-            organ_names, 
-            window_size, 
-            output_paths
-        )
-    except Exception as e:
-        raise RuntimeError(f"Failed to process scan {args.scan_path}: {e}") from e
-    
-    # Verify at least one output was created
-    output_created = False
-    for output_path in output_paths.values():
-        if os.path.exists(output_path):
-            output_created = True
-            break
-    
-    if not output_created:
-        raise RuntimeError(f"No output files were created for scan")
+    # Process each scan sequentially
+    for scan_idx, (scan_path, seg_path) in enumerate(zip(scan_paths, seg_paths)):
+        # Extract scan_id from seg_path (format: .../{scan_id}_segmentation.nii.gz)
+        seg_basename = os.path.basename(seg_path)
+        if seg_basename.endswith('_segmentation.nii.gz'):
+            scan_id = seg_basename[:-20]  # Remove '_segmentation.nii.gz'
+        else:
+            # Fallback: try to extract from scan path
+            scan_basename = os.path.basename(scan_path)
+            scan_id = scan_basename.replace('.nii.gz', '')
+        
+        print(f"Processing scan {scan_idx + 1}/{len(scan_paths)}: {scan_id}")
+        
+        # Get output paths for this scan
+        if scan_id not in scan_outputs:
+            raise ValueError(f"Could not find output paths for scan {scan_id}. Available scan IDs: {list(scan_outputs.keys())}")
+        
+        output_paths = scan_outputs[scan_id]
+        
+        # Process scan for all organs
+        try:
+            process_scan_for_all_organs(
+                model, 
+                scan_path, 
+                seg_path, 
+                organ_names, 
+                window_size, 
+                output_paths
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to process scan {scan_path}: {e}") from e
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UMedPT Feature Extraction for LEAVS")
-    parser.add_argument("--scan-path", type=str, required=True, help="Path to scan file (.nii.gz)")
-    parser.add_argument("--seg-path", type=str, required=True, help="Path to segmentation file (.nii.gz)")
-    parser.add_argument("--output-paths", type=str, required=True, help="Comma-separated list of 'organ:path' pairs (e.g., 'spleen:/path/to/spleen.npz,liver:/path/to/liver.npz')")
+    parser.add_argument("--scan-paths", type=str, required=True, help="Comma-separated list of scan file paths (.nii.gz)")
+    parser.add_argument("--seg-paths", type=str, required=True, help="Comma-separated list of segmentation file paths (.nii.gz)")
+    parser.add_argument("--output-paths", type=str, required=True, help="Comma-separated list of 'organ:path' pairs for all scans (e.g., 'spleen:/path/to/spleen_scan1.npz,liver:/path/to/liver_scan1.npz,spleen:/path/to/spleen_scan2.npz,...')")
     args = parser.parse_args()
 
     sys.exit(main(args))

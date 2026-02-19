@@ -3,164 +3,149 @@
 
 from util.snakemake_helpers import VALID_ORGANS
 
-rule compute_features_ctfm:
-    input:
-        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
-        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
-    output:
-        gallbladder = OUTPUT_ROOT + "/ctfm/gallbladder/{split}/features/raw/{scan_id}.npz",
-        kidney_left = OUTPUT_ROOT + "/ctfm/kidney_left/{split}/features/raw/{scan_id}.npz",
-        kidney_right = OUTPUT_ROOT + "/ctfm/kidney_right/{split}/features/raw/{scan_id}.npz",
-        large_bowel = OUTPUT_ROOT + "/ctfm/large_bowel/{split}/features/raw/{scan_id}.npz",
-        liver = OUTPUT_ROOT + "/ctfm/liver/{split}/features/raw/{scan_id}.npz",
-        pancreas = OUTPUT_ROOT + "/ctfm/pancreas/{split}/features/raw/{scan_id}.npz",
-        small_bowel = OUTPUT_ROOT + "/ctfm/small_bowel/{split}/features/raw/{scan_id}.npz",
-        spleen = OUTPUT_ROOT + "/ctfm/spleen/{split}/features/raw/{scan_id}.npz",
-        stomach = OUTPUT_ROOT + "/ctfm/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels_ctfm"
-    resources:
-        image = "jtagscherer/evalblocks-ctfm:0.0.1",
-        qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
-        time="1-00:00:00"
-    shell:
-        """
-        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m featuremodels.scripts.ctfm \
-                --scan-path {input.scan_path} \
-                --seg-path {input.seg_path} \
-                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
-        """
 
-rule compute_features_curia:
-    input:
-        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
-        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
-    output:
-        gallbladder = OUTPUT_ROOT + "/curia/gallbladder/{split}/features/raw/{scan_id}.npz",
-        kidney_left = OUTPUT_ROOT + "/curia/kidney_left/{split}/features/raw/{scan_id}.npz",
-        kidney_right = OUTPUT_ROOT + "/curia/kidney_right/{split}/features/raw/{scan_id}.npz",
-        large_bowel = OUTPUT_ROOT + "/curia/large_bowel/{split}/features/raw/{scan_id}.npz",
-        liver = OUTPUT_ROOT + "/curia/liver/{split}/features/raw/{scan_id}.npz",
-        pancreas = OUTPUT_ROOT + "/curia/pancreas/{split}/features/raw/{scan_id}.npz",
-        small_bowel = OUTPUT_ROOT + "/curia/small_bowel/{split}/features/raw/{scan_id}.npz",
-        spleen = OUTPUT_ROOT + "/curia/spleen/{split}/features/raw/{scan_id}.npz",
-        stomach = OUTPUT_ROOT + "/curia/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels_curia"
-    resources:
-        image = "jtagscherer/evalblocks-huggingface:0.0.1",
-        qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
-        time="1-00:00:00"
-    shell:
-        """
-        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "export HF_HOME={HF_HOME} && \
-            cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m featuremodels.scripts.curia \
-                --scan-path {input.scan_path} \
-                --seg-path {input.seg_path} \
-                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
-        """
+def get_scan_paths_for_batch(wildcards):
+    """Get scan paths for a batch."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, FEATURE_MODEL_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    scan_paths = []
+    for scan_id in batch:
+        if wildcards.split != "test":
+            scan_path = DATASET_ROOT + f"/LEAVS/imagesTr/{scan_id}.nii.gz"
+        else:
+            scan_path = DATASET_ROOT + f"/LEAVS/imagesTs/{scan_id}.nii.gz"
+        scan_paths.append(scan_path)
+    return scan_paths
 
-rule compute_features_umedpt:
-    input:
-        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
-        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
-    output:
-        gallbladder = OUTPUT_ROOT + "/umedpt/gallbladder/{split}/features/raw/{scan_id}.npz",
-        kidney_left = OUTPUT_ROOT + "/umedpt/kidney_left/{split}/features/raw/{scan_id}.npz",
-        kidney_right = OUTPUT_ROOT + "/umedpt/kidney_right/{split}/features/raw/{scan_id}.npz",
-        large_bowel = OUTPUT_ROOT + "/umedpt/large_bowel/{split}/features/raw/{scan_id}.npz",
-        liver = OUTPUT_ROOT + "/umedpt/liver/{split}/features/raw/{scan_id}.npz",
-        pancreas = OUTPUT_ROOT + "/umedpt/pancreas/{split}/features/raw/{scan_id}.npz",
-        small_bowel = OUTPUT_ROOT + "/umedpt/small_bowel/{split}/features/raw/{scan_id}.npz",
-        spleen = OUTPUT_ROOT + "/umedpt/spleen/{split}/features/raw/{scan_id}.npz",
-        stomach = OUTPUT_ROOT + "/umedpt/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels_umedpt"
-    resources:
-        image = "jtagscherer/evalblocks-umedpt:0.0.1",
-        qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
-        time="1-00:00:00"
-    shell:
-        """
-        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m featuremodels.scripts.umedpt \
-                --scan-path {input.scan_path} \
-                --seg-path {input.seg_path} \
-                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
-        """
 
-rule compute_features_spectre:
-    input:
-        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
-        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
-    output:
-        gallbladder = OUTPUT_ROOT + "/spectre/gallbladder/{split}/features/raw/{scan_id}.npz",
-        kidney_left = OUTPUT_ROOT + "/spectre/kidney_left/{split}/features/raw/{scan_id}.npz",
-        kidney_right = OUTPUT_ROOT + "/spectre/kidney_right/{split}/features/raw/{scan_id}.npz",
-        large_bowel = OUTPUT_ROOT + "/spectre/large_bowel/{split}/features/raw/{scan_id}.npz",
-        liver = OUTPUT_ROOT + "/spectre/liver/{split}/features/raw/{scan_id}.npz",
-        pancreas = OUTPUT_ROOT + "/spectre/pancreas/{split}/features/raw/{scan_id}.npz",
-        small_bowel = OUTPUT_ROOT + "/spectre/small_bowel/{split}/features/raw/{scan_id}.npz",
-        spleen = OUTPUT_ROOT + "/spectre/spleen/{split}/features/raw/{scan_id}.npz",
-        stomach = OUTPUT_ROOT + "/spectre/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels_spectre"
-    resources:
-        image = "jtagscherer/evalblocks-spectre:0.0.1",
-        qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
-        time="1-00:00:00"
-    shell:
-        """
-        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m featuremodels.scripts.spectre \
-                --scan-path {input.scan_path} \
-                --seg-path {input.seg_path} \
-                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
-        """
+def get_seg_paths_for_batch(wildcards):
+    """Get segmentation paths for a batch."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, FEATURE_MODEL_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    seg_paths = []
+    for scan_id in batch:
+        seg_path = DATASET_ROOT + f"/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
+        seg_paths.append(seg_path)
+    return seg_paths
 
-rule compute_features_tapct:
+
+def get_output_paths_for_batch(wildcards):
+    """Get all output paths for a batch - returns flat list."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, FEATURE_MODEL_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    output_paths = []
+    for organ_name in VALID_ORGANS:
+        for scan_id in batch:
+            output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
+            output_paths.append(output_path)
+    return output_paths
+
+
+def get_output_paths_dict_for_batch(wildcards):
+    """Get output paths dictionary organized by organ."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, FEATURE_MODEL_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    output_paths = {}
+    for organ_name in VALID_ORGANS:
+        organ_outputs = []
+        for scan_id in batch:
+            output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
+            organ_outputs.append(output_path)
+        output_paths[organ_name] = organ_outputs
+    return output_paths
+
+
+def format_output_paths_arg(output_paths_dict):
+    """Format output paths dictionary into command-line argument format."""
+    parts = []
+    for organ_name, paths in output_paths_dict.items():
+        for path in paths:
+            parts.append(f"{organ_name}:{path}")
+    return ",".join(parts)
+
+
+def get_model_resources(wildcards):
+    """Get resources based on model name."""
+    model_resources = {
+        "ctfm": {
+            "image": "jtagscherer/evalblocks-ctfm:0.0.1",
+            "group": "featuremodels_ctfm"
+        },
+        "curia": {
+            "image": "jtagscherer/evalblocks-huggingface:0.0.1",
+            "group": "featuremodels_curia"
+        },
+        "umedpt": {
+            "image": "jtagscherer/evalblocks-umedpt:0.0.1",
+            "group": "featuremodels_umedpt"
+        },
+        "spectre": {
+            "image": "jtagscherer/evalblocks-spectre:0.0.1",
+            "group": "featuremodels_spectre"
+        },
+        "tapct": {
+            "image": "jtagscherer/evalblocks-huggingface:0.0.1",
+            "group": "featuremodels_tapct"
+        }
+    }
+    return model_resources.get(wildcards.model_name, model_resources["ctfm"])
+
+
+def get_model_script_command(wildcards):
+    """Get the Python module command for the model."""
+    model_scripts = {
+        "ctfm": "featuremodels.scripts.ctfm",
+        "curia": "featuremodels.scripts.curia",
+        "umedpt": "featuremodels.scripts.umedpt",
+        "spectre": "featuremodels.scripts.spectre",
+        "tapct": "featuremodels.scripts.tapct"
+    }
+    return model_scripts.get(wildcards.model_name, "featuremodels.scripts.ctfm")
+
+
+def get_hf_home_env(wildcards):
+    """Get HF_HOME environment variable for models that need it."""
+    if wildcards.model_name in ["curia", "tapct"]:
+        return f"export HF_HOME={HF_HOME} && "
+    return ""
+
+
+rule compute_features:
     input:
-        scan_path = lambda wildcards: DATASET_ROOT + f"/LEAVS/imagesTr/{wildcards.scan_id}.nii.gz" if wildcards.split != "test" else DATASET_ROOT + f"/LEAVS/imagesTs/{wildcards.scan_id}.nii.gz",
-        seg_path = DATASET_ROOT + "/LEAVS/AMOS-MM-TotalSegmentator/{scan_id}_segmentation.nii.gz"
+        scan_paths = get_scan_paths_for_batch,
+        seg_paths = get_seg_paths_for_batch
     output:
-        gallbladder = OUTPUT_ROOT + "/tapct/gallbladder/{split}/features/raw/{scan_id}.npz",
-        kidney_left = OUTPUT_ROOT + "/tapct/kidney_left/{split}/features/raw/{scan_id}.npz",
-        kidney_right = OUTPUT_ROOT + "/tapct/kidney_right/{split}/features/raw/{scan_id}.npz",
-        large_bowel = OUTPUT_ROOT + "/tapct/large_bowel/{split}/features/raw/{scan_id}.npz",
-        liver = OUTPUT_ROOT + "/tapct/liver/{split}/features/raw/{scan_id}.npz",
-        pancreas = OUTPUT_ROOT + "/tapct/pancreas/{split}/features/raw/{scan_id}.npz",
-        small_bowel = OUTPUT_ROOT + "/tapct/small_bowel/{split}/features/raw/{scan_id}.npz",
-        spleen = OUTPUT_ROOT + "/tapct/spleen/{split}/features/raw/{scan_id}.npz",
-        stomach = OUTPUT_ROOT + "/tapct/stomach/{split}/features/raw/{scan_id}.npz"
-    group: "featuremodels_tapct"
+        output_paths = get_output_paths_for_batch
+    group: lambda wildcards: get_model_resources(wildcards)["group"]
     resources:
-        image = "jtagscherer/evalblocks-huggingface:0.0.1",
-        qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
-        time="1-00:00:00"
+        image = lambda wildcards: get_model_resources(wildcards)["image"],
+        qos = "low",
+        cpus = 16,
+        gpus = 1,
+        mem_mb = 32000,
+        time = "1-00:00:00"
+    params:
+        output_paths_dict = get_output_paths_dict_for_batch,
+        script_module = get_model_script_command,
+        hf_home_env = get_hf_home_env
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
-            "export HF_HOME={HF_HOME} && \
-            cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m featuremodels.scripts.tapct \
-                --scan-path {input.scan_path} \
-                --seg-path {input.seg_path} \
-                --output-paths gallbladder:{output.gallbladder},kidney_left:{output.kidney_left},kidney_right:{output.kidney_right},large_bowel:{output.large_bowel},liver:{output.liver},pancreas:{output.pancreas},small_bowel:{output.small_bowel},spleen:{output.spleen},stomach:{output.stomach}"
+            "{params.hf_home_env}cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m {params.script_module} \
+                --scan-paths {','.join(input.scan_paths)} \
+                --seg-paths {','.join(input.seg_paths)} \
+                --output-paths {format_output_paths_arg(params.output_paths_dict)}"
         """

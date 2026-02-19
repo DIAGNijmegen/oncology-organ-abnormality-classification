@@ -19,6 +19,10 @@ OUTPUT_ROOT = os.getenv("OUTPUT_ROOT")
 if OUTPUT_ROOT is None:
     raise ValueError("OUTPUT_ROOT environment variable is not set. Please set it to the desired root of your outputs.")
 
+# Batch size configuration
+FEATURE_MODEL_BATCH_SIZE = int(os.getenv("FEATURE_MODEL_BATCH_SIZE", "100"))
+AGGREGATION_BATCH_SIZE = int(os.getenv("AGGREGATION_BATCH_SIZE", "100"))
+
 import json
 
 with open(f"{REPOSITORY_ROOT}/experiments.json","r") as f:
@@ -33,6 +37,22 @@ test_annotations = leavs_data["test_annotations"]
 train_scan_ids_split = leavs_data["train_scan_ids_split"]
 val_scan_ids_split = leavs_data["val_scan_ids_split"]
 get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
+
+
+def create_batches(items, batch_size):
+    """Create batches from a list of items."""
+    batches = []
+    for i in range(0, len(items), batch_size):
+        batch = items[i:i + batch_size]
+        batches.append(batch)
+    return batches
+
+
+def get_batch_id(batch_idx, total_batches):
+    """Generate a batch ID string."""
+    # Use zero-padded batch index for consistent sorting
+    max_digits = len(str(total_batches - 1))
+    return f"batch_{str(batch_idx).zfill(max_digits)}"
 
 
 # Generate output files for feature extraction

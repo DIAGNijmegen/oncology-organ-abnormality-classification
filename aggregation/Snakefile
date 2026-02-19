@@ -1,11 +1,86 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
+from util.snakemake_helpers import VALID_ORGANS
+
+
+def get_input_paths_for_batch(wildcards):
+    """Get input feature paths for a batch."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, AGGREGATION_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    input_paths = []
+    for scan_id in batch:
+        input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
+        input_paths.append(input_path)
+    return input_paths
+
+
+def get_output_paths_for_batch_mean(wildcards):
+    """Get all output paths for a batch for mean aggregation - returns flat list."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, AGGREGATION_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    output_paths = []
+    for scan_id in batch:
+        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/mean/{scan_id}.npz"
+        output_paths.append(output_path)
+    return output_paths
+
+
+def get_output_paths_for_batch_max(wildcards):
+    """Get all output paths for a batch for max aggregation - returns flat list."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, AGGREGATION_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    output_paths = []
+    for scan_id in batch:
+        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/max/{scan_id}.npz"
+        output_paths.append(output_path)
+    return output_paths
+
+
+def get_input_output_pairs_mean(wildcards):
+    """Get input-output pairs for mean aggregation."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, AGGREGATION_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    pairs = []
+    for scan_id in batch:
+        input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
+        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/mean/{scan_id}.npz"
+        pairs.append((input_path, output_path))
+    return pairs
+
+
+def get_input_output_pairs_max(wildcards):
+    """Get input-output pairs for max aggregation."""
+    batch_scans = get_scans_for_split_and_organ(wildcards.split, wildcards.organ_name)
+    scan_batches = create_batches(batch_scans, AGGREGATION_BATCH_SIZE)
+    batch_idx = int(wildcards.batch_id.split("_")[1])
+    batch = scan_batches[batch_idx]
+    
+    pairs = []
+    for scan_id in batch:
+        input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
+        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/max/{scan_id}.npz"
+        pairs.append((input_path, output_path))
+    return pairs
+
+
 rule aggregate_mean:
     input:
-        input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
+        input_paths = get_input_paths_for_batch
     output:
-        output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz"
+        output_paths = get_output_paths_for_batch_mean
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
@@ -14,20 +89,22 @@ rule aggregate_mean:
         gpus=0,
         mem_mb=16000,
         time="1-00:00:00"
+    params:
+        input_output_pairs = get_input_output_pairs_mean
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.mean \
-                --input-features {input.input_features} \
-                --output-features {output.output_features}"
+                --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
+                --output-features {','.join([pair[1] for pair in params.input_output_pairs])}"
         """
 
 rule aggregate_max:
     input:
-        input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
+        input_paths = get_input_paths_for_batch
     output:
-        output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz"
+        output_paths = get_output_paths_for_batch_max
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
@@ -36,11 +113,13 @@ rule aggregate_max:
         gpus=0,
         mem_mb=16000,
         time="1-00:00:00"
+    params:
+        input_output_pairs = get_input_output_pairs_max
     shell:
         """
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.max \
-                --input-features {input.input_features} \
-                --output-features {output.output_features}"
+                --input-features {','.join([pair[0] for pair in params.input_output_pairs])} \
+                --output-features {','.join([pair[1] for pair in params.input_output_pairs])}"
         """
