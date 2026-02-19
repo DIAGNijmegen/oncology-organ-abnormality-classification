@@ -3,9 +3,14 @@
 
 import os
 import glob
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, List
 import numpy as np
-from util.leavs_utils import parse_train_annotations, parse_test_annotations
+from util.leavs_utils import (
+    parse_train_annotations, 
+    parse_test_annotations,
+    parse_train_subgroup_annotations,
+    parse_test_subgroup_annotations,
+)
 
 
 def get_base_args_parser(description: Optional[str] = None, add_help: bool = True):
@@ -200,6 +205,95 @@ def load_and_validate_annotations(
         raise RuntimeError(f"Failed to parse annotations: {e}") from e
     
     return train_annotations, test_annotations
+
+
+def load_subgroup_annotations(
+    annotations_train_csv: str,
+    annotations_test_csv: str,
+) -> Tuple[dict, dict]:
+    """
+    Load subgroup annotations from CSV files.
+    Returns: (train_subgroup_annotations, test_subgroup_annotations)
+    Format: {scan_id: {organ: {subgroup_name: value}}}
+    """
+    try:
+        train_subgroups = parse_train_subgroup_annotations(annotations_train_csv)
+        test_subgroups = parse_test_subgroup_annotations(annotations_test_csv)
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse subgroup annotations: {e}") from e
+    
+    return train_subgroups, test_subgroups
+
+
+def filter_by_subgroup(
+    X: np.ndarray,
+    y: np.ndarray,
+    scan_ids: List[str],
+    subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]],
+    organ_name: str,
+    subgroup_name: str,
+    subgroup_value: int = 1,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Filter features and labels by subgroup criteria.
+    
+    Args:
+        X: Feature array
+        y: Label array
+        scan_ids: List of scan IDs corresponding to X and y
+        subgroup_annotations: Subgroup annotations dict
+        organ_name: Name of the organ
+        subgroup_name: Name of the subgroup (e.g., 'diffuse', 'focal', 'postsurgical')
+        subgroup_value: Value to filter for (default: 1)
+    
+    Returns:
+        Filtered (X_filtered, y_filtered)
+    """
+    if len(X) == 0:
+        return X, y
+    
+    if len(scan_ids) != len(X):
+        raise ValueError(f"Mismatch: {len(scan_ids)} scan_ids but {len(X)} samples")
+    
+    filtered_indices = []
+    for idx, scan_id in enumerate(scan_ids):
+        if scan_id in subgroup_annotations:
+            organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+            # Check if this sample matches the subgroup criteria
+            if subgroup_name in organ_subgroups:
+                if organ_subgroups[subgroup_name] == subgroup_value:
+                    filtered_indices.append(idx)
+    
+    if len(filtered_indices) == 0:
+        return np.array([]), np.array([])
+    
+    filtered_indices = np.array(filtered_indices)
+    return X[filtered_indices], y[filtered_indices]
+
+
+def get_available_subgroups(
+    subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]],
+    organ_name: str,
+) -> List[str]:
+    """
+    Get list of available subgroups for a given organ.
+    
+    Args:
+        subgroup_annotations: Subgroup annotations dict
+        organ_name: Name of the organ
+    
+    Returns:
+        List of subgroup names that have at least one sample with value=1
+    """
+    available_subgroups = set()
+    
+    for scan_id, organs in subgroup_annotations.items():
+        if organ_name in organs:
+            for subgroup_name, value in organs[organ_name].items():
+                if value == 1:
+                    available_subgroups.add(subgroup_name)
+    
+    return sorted(list(available_subgroups))
 
 
 def validate_features_and_labels(

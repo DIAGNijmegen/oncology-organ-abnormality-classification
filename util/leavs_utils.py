@@ -164,6 +164,131 @@ def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
     return annotations
 
 
+def parse_train_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[str, int]]]:
+    """
+    Parse training annotations CSV to extract subgroup information.
+    Returns: {scan_id: {organ: {subgroup_name: value}}}
+    
+    Subgroups: postsurgical, enlarged, atrophy, diffuse, focal
+    Values: 1 if present, 0 if absent, -2 if not applicable/unknown
+    """
+    subgroup_annotations = {}
+    
+    # Subgroup columns to extract
+    subgroup_columns = ['postsurgical', 'enlarged', 'atrophy', 'diffuse', 'focal']
+    
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Extract scan ID from subjectid_studyid
+            subjectid = row['subjectid_studyid']
+            if '_' in subjectid:
+                first_part = subjectid.split('_')[0]
+                scan_id = os.path.basename(first_part).replace('.nii.gz', '')
+            else:
+                scan_id = os.path.basename(subjectid).replace('.nii.gz', '')
+            
+            organ = row['organ']
+            normal = row['normal']
+            
+            # Only process rows with valid normality labels
+            if normal not in ['0', '1']:
+                continue
+            
+            # Map organ name to standard name
+            standard_organ = CSV_ORGAN_TO_STANDARD.get(organ.lower(), organ.lower().replace(' ', '_'))
+            
+            if scan_id not in subgroup_annotations:
+                subgroup_annotations[scan_id] = {}
+            if standard_organ not in subgroup_annotations[scan_id]:
+                subgroup_annotations[scan_id][standard_organ] = {}
+            
+            # Extract subgroup values
+            for subgroup in subgroup_columns:
+                val = row.get(subgroup, '').strip()
+                if val and val != '':
+                    try:
+                        val_int = int(float(val))
+                        # Only store if value is 0 or 1 (skip -2, -3, etc.)
+                        if val_int in [0, 1]:
+                            subgroup_annotations[scan_id][standard_organ][subgroup] = val_int
+                    except (ValueError, KeyError):
+                        pass
+    
+    return subgroup_annotations
+
+
+def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[str, int]]]:
+    """
+    Parse test annotations CSV to extract subgroup information.
+    Returns: {scan_id: {organ: {subgroup_name: value}}}
+    
+    Subgroups: postsurgical_absent, enlarged_atrophy, diffuse, focal
+    Note: postsurgical_absent and enlarged_atrophy are combined columns in test CSV
+    """
+    subgroup_annotations = {}
+    
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        
+        for row in reader:
+            scan_id_raw = row['image1']
+            scan_id = scan_id_raw.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
+            
+            type_annotation = row['type_annotation']
+            
+            # Only process 'labels' rows, skip 'urgency'
+            if type_annotation != 'labels':
+                continue
+            
+            if scan_id not in subgroup_annotations:
+                subgroup_annotations[scan_id] = {}
+            
+            # Organ names in the CSV
+            organ_names = [
+                'spleen',
+                'liver',
+                'right kidney',
+                'left kidney',
+                'stomach',
+                'pancreas',
+                'gallbladder',
+                'small bowel',
+                'large bowel',
+            ]
+            
+            for organ_name in organ_names:
+                # Map organ name to standard name
+                standard_organ = CSV_ORGAN_TO_STANDARD.get(organ_name.lower(), organ_name.lower().replace(' ', '_'))
+                
+                if standard_organ not in subgroup_annotations[scan_id]:
+                    subgroup_annotations[scan_id][standard_organ] = {}
+                
+                # Extract subgroup columns for this organ
+                # Test CSV has: {organ}_postsurgical_absent, {organ}_enlarged_atrophy, {organ}_diffuse, {organ}_focal
+                subgroup_mappings = {
+                    'postsurgical_absent': 'postsurgical',
+                    'enlarged_atrophy': 'enlarged_atrophy',  # Keep as combined for now
+                    'diffuse': 'diffuse',
+                    'focal': 'focal',
+                }
+                
+                for csv_suffix, subgroup_key in subgroup_mappings.items():
+                    col_name = f"{organ_name}_{csv_suffix}"
+                    val = row.get(col_name, '').strip()
+                    if val and val != '':
+                        try:
+                            val_float = float(val)
+                            if val_float == 1.0:
+                                subgroup_annotations[scan_id][standard_organ][subgroup_key] = 1
+                            elif val_float == 0.0:
+                                subgroup_annotations[scan_id][standard_organ][subgroup_key] = 0
+                        except (ValueError, KeyError):
+                            pass
+    
+    return subgroup_annotations
+
+
 def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, window_size: Tuple[int, ...]) -> Optional[Tuple[np.ndarray, Tuple[int, int, int]]]:
     """
     Extract organ crop from scan using segmentation mask.

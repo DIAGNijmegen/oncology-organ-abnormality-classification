@@ -15,8 +15,11 @@ from .evaluation_utils import (
     load_features_and_labels,
     validate_evaluation_inputs,
     load_and_validate_annotations,
+    load_subgroup_annotations,
     validate_features_and_labels,
     save_metrics,
+    filter_by_subgroup,
+    get_available_subgroups,
 )
 
 
@@ -136,11 +139,24 @@ def main(args):
     
     val_annotations = train_annotations  # Validation uses train annotations
     
-    # Load features and labels
+    # Load subgroup annotations
+    train_subgroups, test_subgroups = load_subgroup_annotations(
+        args.annotations_train_csv,
+        args.annotations_test_csv,
+    )
+    val_subgroups = train_subgroups  # Validation uses train subgroups
+    
+    # Load features and labels with scan IDs for subgroup filtering
     try:
-        X_train, y_train = load_features_and_labels(args.feature_dir_training, train_annotations, args.organ_name)
-        X_val, y_val = load_features_and_labels(args.feature_dir_validation, val_annotations, args.organ_name)
-        X_test, y_test = load_features_and_labels(args.feature_dir_test, test_annotations, args.organ_name)
+        X_train, y_train, train_scan_ids = load_features_and_labels(
+            args.feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+        )
+        X_val, y_val, val_scan_ids = load_features_and_labels(
+            args.feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+        )
+        X_test, y_test, test_scan_ids = load_features_and_labels(
+            args.feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to load features: {e}") from e
     
@@ -192,26 +208,95 @@ def main(args):
                 best_checkpoint_path = os.path.join(args.output_checkpoint, "best_model.pth")
                 torch.save(model.state_dict(), best_checkpoint_path)
 
-    # Evaluate on all splits
+    # Evaluate on all splits (overall metrics)
     train_acc, train_auc = evaluate(model, train_loader, device)
     val_acc, val_auc = evaluate(model, val_loader, device)
     test_acc, test_auc = evaluate(model, test_loader, device)
 
     metrics = {
-        "train": {
-            "accuracy": float(train_acc) if train_acc is not None else None,
-            "auc": float(train_auc) if train_auc is not None else None,
+        "overall": {
+            "train": {
+                "accuracy": float(train_acc) if train_acc is not None else None,
+                "auc": float(train_auc) if train_auc is not None else None,
+            },
+            "validation": {
+                "accuracy": float(val_acc) if val_acc is not None else None,
+                "auc": float(val_auc) if val_auc is not None else None,
+            },
+            "test": {
+                "accuracy": float(test_acc) if test_acc is not None else None,
+                "auc": float(test_auc) if test_auc is not None else None,
+            },
         },
-        "validation": {
-            "accuracy": float(val_acc) if val_acc is not None else None,
-            "auc": float(val_auc) if val_auc is not None else None,
-        },
-        "test": {
-            "accuracy": float(test_acc) if test_acc is not None else None,
-            "auc": float(test_auc) if test_auc is not None else None,
-        },
+        "subgroups": {},
         "best_checkpoint": best_checkpoint_path,
     }
+    
+    # Get available subgroups for train and test
+    train_available_subgroups = get_available_subgroups(train_subgroups, args.organ_name)
+    test_available_subgroups = get_available_subgroups(test_subgroups, args.organ_name)
+    
+    # Combine and deduplicate subgroups (evaluate on all subgroups present in either split)
+    all_subgroups = sorted(set(train_available_subgroups + test_available_subgroups))
+    
+    # Evaluate on each subgroup
+    for subgroup_name in all_subgroups:
+        subgroup_metrics = {}
+        
+        # Filter train split
+        X_train_sub, y_train_sub = filter_by_subgroup(
+            X_train, y_train, train_scan_ids, train_subgroups,
+            args.organ_name, subgroup_name, subgroup_value=1
+        )
+        
+        # Filter validation split
+        X_val_sub, y_val_sub = filter_by_subgroup(
+            X_val, y_val, val_scan_ids, val_subgroups,
+            args.organ_name, subgroup_name, subgroup_value=1
+        )
+        
+        # Filter test split
+        X_test_sub, y_test_sub = filter_by_subgroup(
+            X_test, y_test, test_scan_ids, test_subgroups,
+            args.organ_name, subgroup_name, subgroup_value=1
+        )
+        
+        # Only evaluate if we have samples in at least one split
+        if len(X_train_sub) > 0 or len(X_val_sub) > 0 or len(X_test_sub) > 0:
+            train_loader_sub, val_loader_sub, test_loader_sub = make_data_loaders(
+                X_train_sub, y_train_sub, X_val_sub, y_val_sub, X_test_sub, y_test_sub, batch_size=128
+            )
+            
+            train_acc_sub, train_auc_sub = evaluate(model, train_loader_sub, device)
+            val_acc_sub, val_auc_sub = evaluate(model, val_loader_sub, device)
+            test_acc_sub, test_auc_sub = evaluate(model, test_loader_sub, device)
+            
+            subgroup_metrics = {
+                "train": {
+                    "accuracy": float(train_acc_sub) if train_acc_sub is not None else None,
+                    "auc": float(train_auc_sub) if train_auc_sub is not None else None,
+                    "n_samples": int(len(X_train_sub)),
+                },
+                "validation": {
+                    "accuracy": float(val_acc_sub) if val_acc_sub is not None else None,
+                    "auc": float(val_auc_sub) if val_auc_sub is not None else None,
+                    "n_samples": int(len(X_val_sub)),
+                },
+                "test": {
+                    "accuracy": float(test_acc_sub) if test_acc_sub is not None else None,
+                    "auc": float(test_auc_sub) if test_auc_sub is not None else None,
+                    "n_samples": int(len(X_test_sub)),
+                },
+            }
+        else:
+            # No samples for this subgroup
+            subgroup_metrics = {
+                "train": {"accuracy": None, "auc": None, "n_samples": 0},
+                "validation": {"accuracy": None, "auc": None, "n_samples": 0},
+                "test": {"accuracy": None, "auc": None, "n_samples": 0},
+            }
+        
+        metrics["subgroups"][subgroup_name] = subgroup_metrics
 
     # Save metrics
     save_metrics(args.output_metrics, metrics)
