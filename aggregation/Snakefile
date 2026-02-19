@@ -122,7 +122,6 @@ rule aggregate_mean:
         progress_file = get_progress_file
     output:
         progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_mean.done"
-    group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
@@ -149,7 +148,6 @@ rule aggregate_max:
         progress_file = get_progress_file
     output:
         progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_max.done"
-    group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
