@@ -11,7 +11,7 @@ from mmm.labelstudio_ext.NativeBlocks import NativeBlocks, MMM_MODELS, DEFAULT_M
 from monai.transforms import (
     Compose,
     EnsureTyped,
-    ScaleIntensityRanged,
+    ScaleIntensityd,
 )
 from tqdm import tqdm
 
@@ -32,13 +32,10 @@ def preprocess_slice(slice_2d: np.ndarray) -> torch.Tensor:
     Expected input: 224x224
     """
     transform = Compose([
-        ScaleIntensityRanged(
+        ScaleIntensityd(
             keys=["image"],
-            a_min=None,
-            a_max=None,
-            b_min=0.0,
-            b_max=1.0,
-            clip=False,
+            minv=0.0,
+            maxv=1.0,
         ),
         EnsureTyped(keys=["image"]),
     ])
