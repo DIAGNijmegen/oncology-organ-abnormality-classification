@@ -10,6 +10,9 @@ rule aggregate_mean:
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=16000,
         time="1-00:00:00"
     shell:
         """
@@ -29,6 +32,9 @@ rule aggregate_max:
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
+        cpus=8,
+        gpus=0,
+        mem_mb=16000,
         time="1-00:00:00"
     shell:
         """
