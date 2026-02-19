@@ -25,6 +25,7 @@ rule evaluate_knn:
         ]
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/knn.json"
+    group: "evaluation"
     params:
         feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
         feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",
@@ -70,6 +71,7 @@ rule evaluate_linear_probing:
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/linear.json",
         output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/")
+    group: "evaluation"
     params:
         feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
         feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",

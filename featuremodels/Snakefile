@@ -17,6 +17,7 @@ rule compute_features_ctfm:
         small_bowel = OUTPUT_ROOT + "/ctfm/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/ctfm/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/ctfm/stomach/{split}/features/raw/{scan_id}.npz"
+    group: "featuremodels.ctfm"
     resources:
         image = "jtagscherer/evalblocks-ctfm:0.0.1",
         qos="low",
@@ -48,6 +49,7 @@ rule compute_features_curia:
         small_bowel = OUTPUT_ROOT + "/curia/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/curia/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/curia/stomach/{split}/features/raw/{scan_id}.npz"
+    group: "featuremodels.curia"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
@@ -80,6 +82,7 @@ rule compute_features_umedpt:
         small_bowel = OUTPUT_ROOT + "/umedpt/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/umedpt/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/umedpt/stomach/{split}/features/raw/{scan_id}.npz"
+    group: "featuremodels.umedpt"
     resources:
         image = "jtagscherer/evalblocks-umedpt:0.0.1",
         qos="low",
@@ -111,6 +114,7 @@ rule compute_features_spectre:
         small_bowel = OUTPUT_ROOT + "/spectre/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/spectre/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/spectre/stomach/{split}/features/raw/{scan_id}.npz"
+    group: "featuremodels.spectre"
     resources:
         image = "jtagscherer/evalblocks-spectre:0.0.1",
         qos="low",
@@ -142,6 +146,7 @@ rule compute_features_tapct:
         small_bowel = OUTPUT_ROOT + "/tapct/small_bowel/{split}/features/raw/{scan_id}.npz",
         spleen = OUTPUT_ROOT + "/tapct/spleen/{split}/features/raw/{scan_id}.npz",
         stomach = OUTPUT_ROOT + "/tapct/stomach/{split}/features/raw/{scan_id}.npz"
+    group: "featuremodels.tapct"
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",

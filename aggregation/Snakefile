@@ -6,6 +6,7 @@ rule aggregate_mean:
         input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
     output:
         output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz"
+    group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
@@ -27,6 +28,7 @@ rule aggregate_max:
         input_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
     output:
         output_features = OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz"
+    group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
