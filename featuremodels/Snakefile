@@ -21,9 +21,6 @@ rule compute_features_ctfm:
     resources:
         image = "jtagscherer/evalblocks-ctfm:0.0.1",
         qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
         time="1-00:00:00"
     shell:
         """
@@ -53,9 +50,6 @@ rule compute_features_curia:
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
         time="1-00:00:00"
     shell:
         """
@@ -86,9 +80,6 @@ rule compute_features_umedpt:
     resources:
         image = "jtagscherer/evalblocks-umedpt:0.0.1",
         qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
         time="1-00:00:00"
     shell:
         """
@@ -150,9 +141,6 @@ rule compute_features_tapct:
     resources:
         image = "jtagscherer/evalblocks-huggingface:0.0.1",
         qos="low",
-        cpus=16,
-        gpus=1,
-        mem_mb=32000,
         time="1-00:00:00"
     shell:
         """
