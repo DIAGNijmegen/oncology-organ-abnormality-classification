@@ -144,24 +144,18 @@ for model_name in model_names:
                 batch_outputs[key] = get_output_paths_for_batch_key(model_name, split, organ_name, batch_id)
 
 
-def get_batch_outputs_expanded(wildcards):
-    """Get outputs for a batch using expand."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
-    return expand(
-        OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz",
-        model_name = [wildcards.model_name],
-        split = [wildcards.split],
-        organ_name = VALID_ORGANS,
-        scan_id = batch_scans
-    )
-
-
 rule compute_features:
     input:
         scan_paths = get_scan_paths_for_batch,
         seg_paths = get_seg_paths_for_batch
     output:
-        output_paths = get_batch_outputs_expanded
+        output_paths = expand(
+            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/raw/{scan_id}.npz",
+            model_name = lambda wildcards: [wildcards.model_name],
+            split = lambda wildcards: [wildcards.split],
+            organ_name = VALID_ORGANS,
+            scan_id = lambda wildcards: get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
+        )
     group: lambda wildcards: get_model_resources(wildcards)["group"]
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],

@@ -99,23 +99,17 @@ for experiment_name, experiment in EXPERIMENTS.items():
                     batch_outputs_max[key] = get_output_paths_for_batch_key_max(experiment_name, split, organ_name, aggregation_method, batch_id)
 
 
-def get_batch_outputs_mean_expanded(wildcards):
-    """Get outputs for a mean aggregation batch using expand."""
-    batch_scans = get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
-    return expand(
-        OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz",
-        model_name = [wildcards.model_name],
-        split = [wildcards.split],
-        organ_name = [wildcards.organ_name],
-        scan_id = batch_scans
-    )
-
-
 rule aggregate_mean:
     input:
         input_paths = get_input_paths_for_batch
     output:
-        output_paths = get_batch_outputs_mean_expanded
+        output_paths = expand(
+            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz",
+            model_name = lambda wildcards: [wildcards.model_name],
+            split = lambda wildcards: [wildcards.split],
+            organ_name = lambda wildcards: [wildcards.organ_name],
+            scan_id = lambda wildcards: get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
+        )
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
@@ -135,23 +129,17 @@ rule aggregate_mean:
                 --output-features {','.join([pair[1] for pair in params.input_output_pairs])}"
         """
 
-def get_batch_outputs_max_expanded(wildcards):
-    """Get outputs for a max aggregation batch using expand."""
-    batch_scans = get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
-    return expand(
-        OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz",
-        model_name = [wildcards.model_name],
-        split = [wildcards.split],
-        organ_name = [wildcards.organ_name],
-        scan_id = batch_scans
-    )
-
-
 rule aggregate_max:
     input:
         input_paths = get_input_paths_for_batch
     output:
-        output_paths = get_batch_outputs_max_expanded
+        output_paths = expand(
+            OUTPUT_ROOT + "/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz",
+            model_name = lambda wildcards: [wildcards.model_name],
+            split = lambda wildcards: [wildcards.split],
+            organ_name = lambda wildcards: [wildcards.organ_name],
+            scan_id = lambda wildcards: get_scans_for_batch_agg(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.aggregation_method, wildcards.batch_id)
+        )
     group: "aggregation"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
