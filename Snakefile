@@ -54,29 +54,6 @@ def get_batch_id(batch_idx, total_batches):
     return f"batch_{str(batch_idx).zfill(max_digits)}"
 
 
-# Generate output files for feature extraction
-output_files = []
-for experiment_name, experiment in EXPERIMENTS.items():
-    for organ_name in VALID_ORGANS:
-        for split in ["training", "validation", "test"]:
-            scans = get_scans_for_split_and_organ(split, organ_name)
-            for scan_id in scans:
-                output_files.append(
-                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/{split}/features/raw/{scan_id}.npz"
-                )
-
-# Generate output files for aggregation
-for experiment_name, experiment in EXPERIMENTS.items():
-    for aggregation_method in experiment['aggregation_methods']:
-        for organ_name in VALID_ORGANS:
-            for split in ["training", "validation", "test"]:
-                scans = get_scans_for_split_and_organ(split, organ_name)
-                for scan_id in scans:
-                    output_files.append(
-                        OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/{split}/features/aggregated/{aggregation_method}/{scan_id}.npz"
-                    )
-
-# Generate output files for evaluation (only on aggregated features)
 for experiment_name, experiment in EXPERIMENTS.items():
     for organ_name in VALID_ORGANS:
         for evaluation_mode in experiment['evaluation_modes']:
