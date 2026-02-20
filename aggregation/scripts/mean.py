@@ -11,8 +11,8 @@ import numpy as np
 
 def get_args_parser(description: Optional[str] = None, add_help: bool = True):
     parser = argparse.ArgumentParser(description=description, add_help=add_help)
-    parser.add_argument("--input-features", required=True, help="Comma-separated list of input feature file paths (.npz)")
-    parser.add_argument("--output-features", required=True, help="Comma-separated list of output file paths for aggregated features")
+    parser.add_argument("--input-features-file", required=True, help="Path to file containing input feature file paths (.npz), one per line")
+    parser.add_argument("--output-features-file", required=True, help="Path to file containing output feature file paths, one per line")
     return parser
 
 
@@ -75,17 +75,14 @@ def process_single_file(input_path, output_path):
     print(f"Aggregated {len(patch_features)} patches. Input shape: {patch_features.shape}, Output shape: {aggregated_features.shape}")
 
 
+def _read_paths_file(paths_file):
+    with open(paths_file, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
 def main(args):
-    # Parse input and output paths (comma-separated)
-    if hasattr(args, 'input_features') and args.input_features:
-        input_paths = [p.strip() for p in args.input_features.split(',')]
-    else:
-        raise ValueError("--input-features is required")
-    
-    if hasattr(args, 'output_features') and args.output_features:
-        output_paths = [p.strip() for p in args.output_features.split(',')]
-    else:
-        raise ValueError("--output-features is required")
+    input_paths = _read_paths_file(args.input_features_file)
+    output_paths = _read_paths_file(args.output_features_file)
     
     if len(input_paths) != len(output_paths):
         raise ValueError(f"Number of input paths ({len(input_paths)}) must match number of output paths ({len(output_paths)})")

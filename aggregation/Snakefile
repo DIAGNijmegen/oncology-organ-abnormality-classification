@@ -77,25 +77,25 @@ def get_input_output_pairs_max(wildcards):
 def join_input_features_mean(wildcards):
     """Join input feature paths for mean aggregation."""
     pairs = get_input_output_pairs_mean(wildcards)
-    return ",".join([pair[0] for pair in pairs])
+    return "\n".join([pair[0] for pair in pairs])
 
 
 def join_output_features_mean(wildcards):
     """Join output feature paths for mean aggregation."""
     pairs = get_input_output_pairs_mean(wildcards)
-    return ",".join([pair[1] for pair in pairs])
+    return "\n".join([pair[1] for pair in pairs])
 
 
 def join_input_features_max(wildcards):
     """Join input feature paths for max aggregation."""
     pairs = get_input_output_pairs_max(wildcards)
-    return ",".join([pair[0] for pair in pairs])
+    return "\n".join([pair[0] for pair in pairs])
 
 
 def join_output_features_max(wildcards):
     """Join output feature paths for max aggregation."""
     pairs = get_input_output_pairs_max(wildcards)
-    return ",".join([pair[1] for pair in pairs])
+    return "\n".join([pair[1] for pair in pairs])
 
 
 # Pre-generate outputs for each batch combination
@@ -134,11 +134,20 @@ rule aggregate_mean:
         output_features_str = join_output_features_mean
     shell:
         """
+        input_features_file=$(mktemp /tmp/input_features.XXXXXX)
+        output_features_file=$(mktemp /tmp/output_features.XXXXXX)
+        cat > "$input_features_file" << 'EOF_INPUT_FEATURES'
+{params.input_features_str}
+EOF_INPUT_FEATURES
+        cat > "$output_features_file" << 'EOF_OUTPUT_FEATURES'
+{params.output_features_str}
+EOF_OUTPUT_FEATURES
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.mean \
-                --input-features {params.input_features_str} \
-                --output-features {params.output_features_str} && \
+                --input-features-file $input_features_file \
+                --output-features-file $output_features_file && \
+            rm -f $input_features_file $output_features_file && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """
@@ -160,11 +169,20 @@ rule aggregate_max:
         output_features_str = join_output_features_max
     shell:
         """
+        input_features_file=$(mktemp /tmp/input_features.XXXXXX)
+        output_features_file=$(mktemp /tmp/output_features.XXXXXX)
+        cat > "$input_features_file" << 'EOF_INPUT_FEATURES'
+{params.input_features_str}
+EOF_INPUT_FEATURES
+        cat > "$output_features_file" << 'EOF_OUTPUT_FEATURES'
+{params.output_features_str}
+EOF_OUTPUT_FEATURES
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.max \
-                --input-features {params.input_features_str} \
-                --output-features {params.output_features_str} && \
+                --input-features-file $input_features_file \
+                --output-features-file $output_features_file && \
+            rm -f $input_features_file $output_features_file && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """

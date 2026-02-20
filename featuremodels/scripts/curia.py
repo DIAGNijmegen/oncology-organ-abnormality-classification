@@ -210,17 +210,17 @@ def extract_scan_id_from_path(path):
     return None
 
 
+def _read_paths_file(paths_file: str) -> list:
+    with open(paths_file, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
 def main(args):
     fix_random_seeds(getattr(args, "seed", 0))
     
-    # Parse scan paths and seg paths (comma-separated)
-    if not args.scan_paths:
-        raise ValueError("--scan-paths is required")
-    if not args.seg_paths:
-        raise ValueError("--seg-paths is required")
-    
-    scan_paths = [p.strip() for p in args.scan_paths.split(',')]
-    seg_paths = [p.strip() for p in args.seg_paths.split(',')]
+    # Parse scan paths and seg paths from files
+    scan_paths = _read_paths_file(args.scan_paths_file)
+    seg_paths = _read_paths_file(args.seg_paths_file)
     
     if len(scan_paths) != len(seg_paths):
         raise ValueError(f"Number of scan paths ({len(scan_paths)}) must match number of seg paths ({len(seg_paths)})")
@@ -242,13 +242,9 @@ def main(args):
         if not os.access(seg_path, os.R_OK):
             raise PermissionError(f"Cannot read segmentation file: {seg_path}")
     
-    # Parse output paths
-    if not args.output_paths:
-        raise ValueError("--output-paths is required. Format: 'organ1:path1,organ2:path2,...'")
-    
-    # Parse all output paths - format is organ:path pairs, organized by organ first, then scan
+    # Parse all output paths (one organ:path pair per line)
     all_output_pairs = []
-    for pair in args.output_paths.split(','):
+    for pair in _read_paths_file(args.output_paths_file):
         if ':' not in pair:
             raise ValueError(f"Invalid output path format: {pair}. Expected 'organ:path'")
         organ_name, output_path = pair.split(':', 1)
@@ -335,9 +331,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Curia Feature Extraction for LEAVS")
-    parser.add_argument("--scan-paths", type=str, required=True, help="Comma-separated list of scan file paths (.nii.gz)")
-    parser.add_argument("--seg-paths", type=str, required=True, help="Comma-separated list of segmentation file paths (.nii.gz)")
-    parser.add_argument("--output-paths", type=str, required=True, help="Comma-separated list of 'organ:path' pairs for all scans (e.g., 'spleen:/path/to/spleen_scan1.npz,liver:/path/to/liver_scan1.npz,spleen:/path/to/spleen_scan2.npz,...')")
+    parser.add_argument("--scan-paths-file", type=str, required=True, help="File containing scan file paths (.nii.gz), one per line")
+    parser.add_argument("--seg-paths-file", type=str, required=True, help="File containing segmentation file paths (.nii.gz), one per line")
+    parser.add_argument("--output-paths-file", type=str, required=True, help="File containing organ:path pairs, one per line")
     args = parser.parse_args()
 
     sys.exit(main(args))

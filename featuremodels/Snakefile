@@ -84,13 +84,22 @@ def format_output_paths_arg(output_paths_dict):
 
 
 def join_scan_paths(wildcards):
-    """Join scan paths with comma."""
-    return ",".join(get_scan_paths_for_batch(wildcards))
+    """Join scan paths with newlines."""
+    return "\n".join(get_scan_paths_for_batch(wildcards))
 
 
 def join_seg_paths(wildcards):
-    """Join segmentation paths with comma."""
-    return ",".join(get_seg_paths_for_batch(wildcards))
+    """Join segmentation paths with newlines."""
+    return "\n".join(get_seg_paths_for_batch(wildcards))
+
+
+def output_paths_to_lines(output_paths_dict):
+    """Format output paths dictionary into newline separated organ:path lines."""
+    parts = []
+    for organ_name, paths in output_paths_dict.items():
+        for path in paths:
+            parts.append(f"{organ_name}:{path}")
+    return "\n".join(parts)
 
 
 def get_model_resources(wildcards):
@@ -173,15 +182,28 @@ rule compute_features:
         hf_home_env = get_hf_home_env,
         scan_paths_str = join_scan_paths,
         seg_paths_str = join_seg_paths,
-        output_paths_str = lambda wildcards: format_output_paths_arg(get_output_paths_dict_for_batch(wildcards))
+        output_paths_str = lambda wildcards: output_paths_to_lines(get_output_paths_dict_for_batch(wildcards))
     shell:
         """
+        scan_paths_file=$(mktemp /tmp/scan_paths.XXXXXX)
+        seg_paths_file=$(mktemp /tmp/seg_paths.XXXXXX)
+        output_paths_file=$(mktemp /tmp/output_paths.XXXXXX)
+        cat > "$scan_paths_file" << 'EOF_SCAN_PATHS'
+{params.scan_paths_str}
+EOF_SCAN_PATHS
+        cat > "$seg_paths_file" << 'EOF_SEG_PATHS'
+{params.seg_paths_str}
+EOF_SEG_PATHS
+        cat > "$output_paths_file" << 'EOF_OUTPUT_PATHS'
+{params.output_paths_str}
+EOF_OUTPUT_PATHS
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "{params.hf_home_env}cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m {params.script_module} \
-                --scan-paths {params.scan_paths_str} \
-                --seg-paths {params.seg_paths_str} \
-                --output-paths {params.output_paths_str} && \
+                --scan-paths-file $scan_paths_file \
+                --seg-paths-file $seg_paths_file \
+                --output-paths-file $output_paths_file && \
+            rm -f $scan_paths_file $seg_paths_file $output_paths_file && \
             mkdir -p $(dirname {output.progress_file}) && \
             touch {output.progress_file}"
             """
