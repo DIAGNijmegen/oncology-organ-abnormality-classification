@@ -113,7 +113,7 @@ rule compute_features:
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],
         qos = "low",
-        cpus = 16,
+        cpus = 20,
         gpus = 1,
         mem_mb = 32000,
         time = "1-00:00:00"

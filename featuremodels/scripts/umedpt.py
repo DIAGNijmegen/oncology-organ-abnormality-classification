@@ -3,6 +3,7 @@
 
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -20,6 +21,9 @@ from util.leavs_utils import get_organ_crop
 from util.sliding_window import sliding_window_2d_slices
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
+
+INFERENCE_BATCH_SIZE = 32
+PREPROCESS_WORKERS = 16
 
 
 def load_model():
@@ -65,24 +69,50 @@ def extract_features_for_organ(
         features: List of feature vectors
         positions: List of slice indices
     """
-    features = []
+    slices = []
     positions = []
-    
     for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
-        # Preprocess slice
-        slice_tensor = preprocess_slice(slice_2d)
-        
-        # Extract features
-        with torch.inference_mode():
-            # UMedPT expects (B, C, H, W) format
-            model_input = slice_tensor.expand(3, 224, 224).unsqueeze(0).cuda()  # (1, 3, H, W)
-            feature_pyramid = model["encoder"](model_input.to(model.device))
-            feature = model["squeezer"](feature_pyramid)[1].detach().cpu().numpy()
-        
-        features.append(feature)
+        slices.append(slice_2d)
         positions.append(slice_idx)
-    
+
+    if not slices:
+        return np.array([]), np.array([])
+
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_slices = list(executor.map(preprocess_slice, slices))
+
+    features = []
+    with torch.inference_mode():
+        for batch_start in range(0, len(preprocessed_slices), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_slices[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.stack(batch_items, dim=0)
+            model_input = batch_tensor.expand(batch_tensor.shape[0], 3, 224, 224).cuda()
+            feature_pyramid = model["encoder"](model_input.to(model.device))
+            batch_features = model["squeezer"](feature_pyramid)[1].detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+
     return np.array(features), np.array(positions)
+
+
+def is_valid_output_file(output_path: str) -> bool:
+    if not os.path.exists(output_path):
+        return False
+    if not os.path.isfile(output_path):
+        return False
+    if not os.access(output_path, os.R_OK):
+        return False
+    try:
+        with np.load(output_path, allow_pickle=True) as data:
+            required_keys = {"features", "positions", "bbox_origin", "organ_name", "is_placeholder"}
+            if not required_keys.issubset(set(data.files)):
+                return False
+            _ = data["features"]
+            _ = data["positions"]
+            _ = data["is_placeholder"]
+    except Exception:
+        return False
+    return True
 
 
 def process_scan_for_organ(
@@ -162,7 +192,6 @@ def process_scan_for_all_organs(
     """
     processed_count = 0
     for organ_name in organ_names:
-        print(f"Extracting features for organ: {organ_name}")
         output_path = os.path.join(
             output_root,
             model_name,
@@ -172,6 +201,13 @@ def process_scan_for_all_organs(
             "raw",
             f"{scan_id}.npz",
         )
+        if is_valid_output_file(output_path):
+            print(f"Skipping organ {organ_name}: valid output already exists at {output_path}")
+            continue
+        if os.path.exists(output_path):
+            print(f"Recomputing organ {organ_name}: existing output is invalid or unreadable at {output_path}")
+        else:
+            print(f"Extracting features for organ: {organ_name}")
         if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
             processed_count += 1
     

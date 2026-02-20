@@ -110,6 +110,26 @@ def extract_features_for_organ(
     return np.array(features), np.array(positions)
 
 
+def is_valid_output_file(output_path: str) -> bool:
+    if not os.path.exists(output_path):
+        return False
+    if not os.path.isfile(output_path):
+        return False
+    if not os.access(output_path, os.R_OK):
+        return False
+    try:
+        with np.load(output_path, allow_pickle=True) as data:
+            required_keys = {"features", "positions", "bbox_origin", "organ_name", "is_placeholder"}
+            if not required_keys.issubset(set(data.files)):
+                return False
+            _ = data["features"]
+            _ = data["positions"]
+            _ = data["is_placeholder"]
+    except Exception:
+        return False
+    return True
+
+
 def process_scan_for_organ(
     model,
     processor,
@@ -193,7 +213,6 @@ def process_scan_for_all_organs(
     """
     processed_count = 0
     for organ_name in organ_names:
-        print(f"Extracting features for organ: {organ_name}")
         output_path = os.path.join(
             output_root,
             model_name,
@@ -203,6 +222,13 @@ def process_scan_for_all_organs(
             "raw",
             f"{scan_id}.npz",
         )
+        if is_valid_output_file(output_path):
+            print(f"Skipping organ {organ_name}: valid output already exists at {output_path}")
+            continue
+        if os.path.exists(output_path):
+            print(f"Recomputing organ {organ_name}: existing output is invalid or unreadable at {output_path}")
+        else:
+            print(f"Extracting features for organ: {organ_name}")
         if process_scan_for_organ(model, processor, scan_path, seg_path, organ_name, window_size, output_path):
             processed_count += 1
     

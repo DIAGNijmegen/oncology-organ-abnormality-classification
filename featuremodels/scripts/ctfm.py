@@ -3,6 +3,7 @@
 
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import nibabel as nib
 import numpy as np
@@ -22,6 +23,9 @@ from util.leavs_utils import get_organ_crop
 from util.sliding_window import sliding_window_3d
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
+
+INFERENCE_BATCH_SIZE = 32
+PREPROCESS_WORKERS = 16
 
 
 def load_model():
@@ -76,23 +80,49 @@ def extract_features_for_organ(
     if stride is None:
         stride = tuple(s // 2 for s in window_size)  # 50% overlap
     
-    features = []
+    patches = []
     positions = []
-    
     for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
-        # Preprocess patch
-        patch_tensor = preprocess_patch(patch)
-        
-        # Extract features
-        with torch.no_grad():
-            patch_tensor = patch_tensor.cuda()
-            output = model(patch_tensor)
-            feature = output[-1].detach().cpu().numpy()
-        
-        features.append(feature)
+        patches.append(patch)
         positions.append((z, y, x))
-    
+
+    if not patches:
+        return np.array([]), np.array([])
+
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+
+    features = []
+    with torch.no_grad():
+        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.cat(batch_items, dim=0).cuda()
+            output = model(batch_tensor)
+            batch_features = output[-1].detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+
     return np.array(features), np.array(positions)
+
+
+def is_valid_output_file(output_path: str) -> bool:
+    if not os.path.exists(output_path):
+        return False
+    if not os.path.isfile(output_path):
+        return False
+    if not os.access(output_path, os.R_OK):
+        return False
+    try:
+        with np.load(output_path, allow_pickle=True) as data:
+            required_keys = {"features", "positions", "bbox_origin", "organ_name", "is_placeholder"}
+            if not required_keys.issubset(set(data.files)):
+                return False
+            _ = data["features"]
+            _ = data["positions"]
+            _ = data["is_placeholder"]
+    except Exception:
+        return False
+    return True
 
 
 def process_scan_for_organ(
@@ -172,7 +202,6 @@ def process_scan_for_all_organs(
     """
     processed_count = 0
     for organ_name in organ_names:
-        print(f"Extracting features for organ: {organ_name}")
         output_path = os.path.join(
             output_root,
             model_name,
@@ -182,6 +211,13 @@ def process_scan_for_all_organs(
             "raw",
             f"{scan_id}.npz",
         )
+        if is_valid_output_file(output_path):
+            print(f"Skipping organ {organ_name}: valid output already exists at {output_path}")
+            continue
+        if os.path.exists(output_path):
+            print(f"Recomputing organ {organ_name}: existing output is invalid or unreadable at {output_path}")
+        else:
+            print(f"Extracting features for organ: {organ_name}")
         if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
             processed_count += 1
     
