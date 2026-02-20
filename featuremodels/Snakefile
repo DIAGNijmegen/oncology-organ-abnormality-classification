@@ -114,9 +114,9 @@ rule compute_features:
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],
         qos = "low",
-        cpus = 20,
+        cpus = 16,
         gpus = 1,
-        mem_mb = 32000,
+        mem_mb = 16000,
         time = "1-00:00:00"
     params:
         script_module = get_model_script_command,
