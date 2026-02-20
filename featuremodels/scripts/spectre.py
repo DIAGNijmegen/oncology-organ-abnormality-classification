@@ -130,7 +130,7 @@ def extract_features_for_organ(
             batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
             batch_tensor = torch.cat(batch_items, dim=0).cuda()
             output = model(batch_tensor.unsqueeze(1), grid_size=(1, 1, 1))
-            batch_features = output[-1].detach().cpu().numpy()
+            batch_features = output.detach().cpu().numpy()
             for feature in batch_features:
                 features.append(np.expand_dims(feature, axis=0))
 
