@@ -12,6 +12,8 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from util.util import fix_random_seeds
 from .evaluation_utils import (
     get_base_args_parser,
+    get_feature_dir,
+    get_metrics_output_path,
     load_features_and_labels,
     validate_evaluation_inputs,
     load_and_validate_annotations,
@@ -25,16 +27,29 @@ from .evaluation_utils import (
 
 def main(args):
     fix_random_seeds(getattr(args, "seed", 0))
+
+    feature_dir_training = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "training", args.aggregation_method
+    )
+    feature_dir_validation = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "validation", args.aggregation_method
+    )
+    feature_dir_test = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "test", args.aggregation_method
+    )
+    output_metrics = get_metrics_output_path(
+        args.output_root, args.model_name, args.organ_name, args.aggregation_method, "knn"
+    )
     
     # Validate inputs early
     validate_evaluation_inputs(
-        args.feature_dir_training,
-        args.feature_dir_validation,
-        args.feature_dir_test,
+        feature_dir_training,
+        feature_dir_validation,
+        feature_dir_test,
         args.annotations_train_csv,
         args.annotations_test_csv,
         args.organ_name,
-        args.output_metrics,
+        output_metrics,
     )
     
     # Load annotations
@@ -56,13 +71,13 @@ def main(args):
     # Load features and labels for each split
     try:
         X_train, y_train, train_scan_ids = load_features_and_labels(
-            args.feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
         )
         X_val, y_val, val_scan_ids = load_features_and_labels(
-            args.feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
         )
         X_test, y_test, test_scan_ids = load_features_and_labels(
-            args.feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
         )
     except Exception as e:
         raise RuntimeError(f"Failed to load features: {e}") from e
@@ -211,7 +226,7 @@ def main(args):
         results.append(result)
     
     # Save results
-    save_metrics(args.output_metrics, results)
+    save_metrics(output_metrics, results)
     
     return 0
 

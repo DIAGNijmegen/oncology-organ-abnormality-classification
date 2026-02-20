@@ -39,9 +39,6 @@ rule evaluate_knn:
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/knn.json"
     params:
-        feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
-        feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",
-        feature_dir_test = OUTPUT_ROOT + "/{model_name}/{organ_name}/test/features/aggregated/{aggregation_method}",
         annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
         annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
@@ -56,13 +53,12 @@ rule evaluate_knn:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m evaluation.scripts.knn \
-                --feature-dir-training {params.feature_dir_training} \
-                --feature-dir-validation {params.feature_dir_validation} \
-                --feature-dir-test {params.feature_dir_test} \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
                 --annotations-train-csv {params.annotations_train_csv} \
                 --annotations-test-csv {params.annotations_test_csv} \
-                --organ-name {wildcards.organ_name} \
-                --output-metrics {output.output_metrics}"
+                --organ-name {wildcards.organ_name}"
         """
 
 rule evaluate_linear_probing:
@@ -72,9 +68,6 @@ rule evaluate_linear_probing:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/linear.json",
         output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/")
     params:
-        feature_dir_training = OUTPUT_ROOT + "/{model_name}/{organ_name}/training/features/aggregated/{aggregation_method}",
-        feature_dir_validation = OUTPUT_ROOT + "/{model_name}/{organ_name}/validation/features/aggregated/{aggregation_method}",
-        feature_dir_test = OUTPUT_ROOT + "/{model_name}/{organ_name}/test/features/aggregated/{aggregation_method}",
         annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
         annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
@@ -89,12 +82,11 @@ rule evaluate_linear_probing:
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m evaluation.scripts.linearprobing \
-                --feature-dir-training {params.feature_dir_training} \
-                --feature-dir-validation {params.feature_dir_validation} \
-                --feature-dir-test {params.feature_dir_test} \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
                 --annotations-train-csv {params.annotations_train_csv} \
                 --annotations-test-csv {params.annotations_test_csv} \
                 --organ-name {wildcards.organ_name} \
-                --output-metrics {output.output_metrics} \
-                --output-checkpoint {output.output_checkpoint}"
+                --seed 0"
         """

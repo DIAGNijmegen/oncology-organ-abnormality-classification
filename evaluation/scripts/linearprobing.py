@@ -12,6 +12,9 @@ from tqdm import tqdm
 from util.util import fix_random_seeds
 from .evaluation_utils import (
     get_base_args_parser,
+    get_feature_dir,
+    get_metrics_output_path,
+    get_checkpoint_output_dir,
     load_features_and_labels,
     validate_evaluation_inputs,
     load_and_validate_annotations,
@@ -116,17 +119,33 @@ def evaluate(model, data_loader, device):
 
 def main(args):
     fix_random_seeds(args.seed)
+
+    feature_dir_training = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "training", args.aggregation_method
+    )
+    feature_dir_validation = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "validation", args.aggregation_method
+    )
+    feature_dir_test = get_feature_dir(
+        args.output_root, args.model_name, args.organ_name, "test", args.aggregation_method
+    )
+    output_metrics = get_metrics_output_path(
+        args.output_root, args.model_name, args.organ_name, args.aggregation_method, "linear"
+    )
+    output_checkpoint = get_checkpoint_output_dir(
+        args.output_root, args.model_name, args.organ_name, args.aggregation_method
+    )
     
     # Validate inputs early
     validate_evaluation_inputs(
-        args.feature_dir_training,
-        args.feature_dir_validation,
-        args.feature_dir_test,
+        feature_dir_training,
+        feature_dir_validation,
+        feature_dir_test,
         args.annotations_train_csv,
         args.annotations_test_csv,
         args.organ_name,
-        args.output_metrics,
-        args.output_checkpoint,
+        output_metrics,
+        output_checkpoint,
     )
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -149,13 +168,13 @@ def main(args):
     # Load features and labels with scan IDs for subgroup filtering
     try:
         X_train, y_train, train_scan_ids = load_features_and_labels(
-            args.feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
         )
         X_val, y_val, val_scan_ids = load_features_and_labels(
-            args.feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
         )
         X_test, y_test, test_scan_ids = load_features_and_labels(
-            args.feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+            feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
         )
     except Exception as e:
         raise RuntimeError(f"Failed to load features: {e}") from e
@@ -196,7 +215,7 @@ def main(args):
 
             epoch_loader.set_postfix(loss=loss.item())
 
-        checkpoint_path = os.path.join(args.output_checkpoint, f"linear_probing_epoch{epoch}.pth")
+        checkpoint_path = os.path.join(output_checkpoint, f"linear_probing_epoch{epoch}.pth")
         if epoch % 1000 == 0:
             torch.save(model.state_dict(), checkpoint_path)
         
@@ -205,7 +224,7 @@ def main(args):
             val_acc, _ = evaluate(model, val_loader, device)
             if val_acc is not None and val_acc > best_val_acc:
                 best_val_acc = val_acc
-                best_checkpoint_path = os.path.join(args.output_checkpoint, "best_model.pth")
+                best_checkpoint_path = os.path.join(output_checkpoint, "best_model.pth")
                 torch.save(model.state_dict(), best_checkpoint_path)
 
     # Evaluate on all splits (overall metrics)
@@ -299,19 +318,13 @@ def main(args):
         metrics["subgroups"][subgroup_name] = subgroup_metrics
 
     # Save metrics
-    save_metrics(args.output_metrics, metrics)
+    save_metrics(output_metrics, metrics)
 
     return 0
 
 
 if __name__ == "__main__":
     parser = get_base_args_parser(description="Linear probing evaluation")
-    parser.add_argument(
-        "--output-checkpoint",
-        type=str,
-        required=True,
-        help="Directory in which to save per-epoch checkpoints",
-    )
     parser.add_argument(
         "--seed",
         type=int,

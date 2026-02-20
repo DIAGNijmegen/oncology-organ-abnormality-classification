@@ -17,24 +17,9 @@ def get_base_args_parser(description: Optional[str] = None, add_help: bool = Tru
     """Get base argument parser with common arguments for evaluation scripts."""
     import argparse
     parser = argparse.ArgumentParser(description=description, add_help=add_help)
-    parser.add_argument(
-        "--feature-dir-training",
-        type=str,
-        required=True,
-        help="Directory containing training feature files",
-    )
-    parser.add_argument(
-        "--feature-dir-validation",
-        type=str,
-        required=True,
-        help="Directory containing validation feature files",
-    )
-    parser.add_argument(
-        "--feature-dir-test",
-        type=str,
-        required=True,
-        help="Directory containing test feature files",
-    )
+    parser.add_argument("--output-root", type=str, required=True, help="Workflow output root directory")
+    parser.add_argument("--model-name", type=str, required=True, help="Feature model name")
+    parser.add_argument("--aggregation-method", type=str, required=True, choices=["mean", "max"], help="Aggregation method")
     parser.add_argument(
         "--annotations-train-csv",
         type=str,
@@ -53,13 +38,42 @@ def get_base_args_parser(description: Optional[str] = None, add_help: bool = Tru
         required=True,
         help="Organ name",
     )
-    parser.add_argument(
-        "--output-metrics",
-        type=str,
-        required=True,
-        help="Output file to write metrics",
-    )
     return parser
+
+
+def get_feature_dir(output_root: str, model_name: str, organ_name: str, split: str, aggregation_method: str) -> str:
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        split,
+        "features",
+        "aggregated",
+        aggregation_method,
+    )
+
+
+def get_metrics_output_path(output_root: str, model_name: str, organ_name: str, aggregation_method: str, evaluation_mode: str) -> str:
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        "metrics",
+        "aggregated",
+        aggregation_method,
+        f"{evaluation_mode}.json",
+    )
+
+
+def get_checkpoint_output_dir(output_root: str, model_name: str, organ_name: str, aggregation_method: str) -> str:
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        "checkpoints",
+        "aggregated",
+        aggregation_method,
+    )
 
 
 def load_features_and_labels(

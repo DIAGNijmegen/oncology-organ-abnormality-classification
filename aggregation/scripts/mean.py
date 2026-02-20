@@ -12,7 +12,11 @@ import numpy as np
 def get_args_parser(description: Optional[str] = None, add_help: bool = True):
     parser = argparse.ArgumentParser(description=description, add_help=add_help)
     parser.add_argument("--input-features-file", required=True, help="Path to file containing input feature file paths (.npz), one per line")
-    parser.add_argument("--output-features-file", required=True, help="Path to file containing output feature file paths, one per line")
+    parser.add_argument("--output-root", required=True, help="Root output directory following workflow conventions")
+    parser.add_argument("--model-name", required=True, help="Feature model name")
+    parser.add_argument("--split", required=True, choices=["training", "validation", "test"], help="Dataset split")
+    parser.add_argument("--organ-name", required=True, help="Organ name")
+    parser.add_argument("--aggregation-method", required=True, choices=["mean", "max"], help="Aggregation method")
     return parser
 
 
@@ -82,13 +86,20 @@ def _read_paths_file(paths_file):
 
 def main(args):
     input_paths = _read_paths_file(args.input_features_file)
-    output_paths = _read_paths_file(args.output_features_file)
-    
-    if len(input_paths) != len(output_paths):
-        raise ValueError(f"Number of input paths ({len(input_paths)}) must match number of output paths ({len(output_paths)})")
-    
+
     # Process each file sequentially
-    for idx, (input_path, output_path) in enumerate(zip(input_paths, output_paths)):
+    for idx, input_path in enumerate(input_paths):
+        scan_id = os.path.basename(input_path).replace(".npz", "")
+        output_path = os.path.join(
+            args.output_root,
+            args.model_name,
+            args.organ_name,
+            args.split,
+            "features",
+            "aggregated",
+            args.aggregation_method,
+            f"{scan_id}.npz",
+        )
         print(f"Processing file {idx + 1}/{len(input_paths)}: {input_path}")
         try:
             process_single_file(input_path, output_path)

@@ -21,6 +21,7 @@ from spectre import SpectreImageFeatureExtractor, MODEL_CONFIGS
 from util.util import fix_random_seeds
 from util.leavs_utils import get_organ_crop
 from util.sliding_window import sliding_window_3d
+from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
 
@@ -195,32 +196,31 @@ def process_scan_for_all_organs(
     seg_path: str,
     organ_names: list,
     window_size: tuple,
-    output_paths: dict
+    output_root: str,
+    model_name: str,
+    split: str,
+    scan_id: str,
 ):
     """
     Process a scan for all specified organs.
-    Saves one file per organ using the provided output paths.
-    
-    Args:
-        output_paths: Dict mapping organ_name to output_path
+    Saves one file per organ using the standard output path convention.
     """
     processed_count = 0
     for organ_name in organ_names:
-        if organ_name in output_paths:
-            print(f"Extracting features for organ: {organ_name}")
-            output_path = output_paths[organ_name]
-            if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
-                processed_count += 1
+        print(f"Extracting features for organ: {organ_name}")
+        output_path = os.path.join(
+            output_root,
+            model_name,
+            organ_name,
+            split,
+            "features",
+            "raw",
+            f"{scan_id}.npz",
+        )
+        if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
+            processed_count += 1
     
     print(f"Successfully processed {processed_count}/{len(organ_names)} organs for scan")
-
-
-def extract_scan_id_from_path(path):
-    """Extract scan_id from output path like .../features/raw/{scan_id}.npz"""
-    basename = os.path.basename(path)
-    if basename.endswith('.npz'):
-        return basename[:-4]  # Remove .npz extension
-    return None
 
 
 def _read_paths_file(paths_file: str) -> list:
@@ -255,48 +255,7 @@ def main(args):
         if not os.access(seg_path, os.R_OK):
             raise PermissionError(f"Cannot read segmentation file: {seg_path}")
     
-    # Parse all output paths (one organ:path pair per line)
-    all_output_pairs = []
-    for pair in _read_paths_file(args.output_paths_file):
-        if ':' not in pair:
-            raise ValueError(f"Invalid output path format: {pair}. Expected 'organ:path'")
-        organ_name, output_path = pair.split(':', 1)
-        organ_name = organ_name.strip()
-        output_path = output_path.strip()
-        scan_id = extract_scan_id_from_path(output_path)
-        if scan_id is None:
-            raise ValueError(f"Could not extract scan_id from path: {output_path}")
-        all_output_pairs.append((scan_id, organ_name, output_path))
-    
-    # Get unique organ names and scan IDs
-    organ_names = sorted(set(organ_name for _, organ_name, _ in all_output_pairs))
-    scan_ids = sorted(set(scan_id for scan_id, _, _ in all_output_pairs))
-    
-    if not organ_names:
-        raise ValueError("No organs specified for processing")
-    
-    if len(scan_ids) != len(scan_paths):
-        raise ValueError(f"Number of unique scan IDs in output paths ({len(scan_ids)}) does not match number of scan paths ({len(scan_paths)})")
-    
-    # Group output paths by scan_id
-    scan_outputs = {}
-    for scan_id, organ_name, output_path in all_output_pairs:
-        if scan_id not in scan_outputs:
-            scan_outputs[scan_id] = {}
-        scan_outputs[scan_id][organ_name] = output_path
-    
-    # Ensure output directories can be created
-    for scan_id, output_paths_dict in scan_outputs.items():
-        for output_path in output_paths_dict.values():
-            output_dir = os.path.dirname(output_path)
-            if output_dir:
-                try:
-                    os.makedirs(output_dir, exist_ok=True)
-                except OSError as e:
-                    raise OSError(f"Cannot create output directory {output_dir}: {e}")
-            # Check write permissions
-            if os.path.exists(output_path) and not os.access(output_path, os.W_OK):
-                raise PermissionError(f"Cannot write to output file: {output_path}")
+    organ_names = VALID_ORGANS
     
     # Window size for SPECTRE: 256x256x128
     window_size = (256, 256, 128)
@@ -321,12 +280,6 @@ def main(args):
         
         print(f"Processing scan {scan_idx + 1}/{len(scan_paths)}: {scan_id}")
         
-        # Get output paths for this scan
-        if scan_id not in scan_outputs:
-            raise ValueError(f"Could not find output paths for scan {scan_id}. Available scan IDs: {list(scan_outputs.keys())}")
-        
-        output_paths = scan_outputs[scan_id]
-        
         # Process scan for all organs
         try:
             process_scan_for_all_organs(
@@ -335,7 +288,10 @@ def main(args):
                 seg_path, 
                 organ_names, 
                 window_size, 
-                output_paths
+                args.output_root,
+                args.model_name,
+                args.split,
+                scan_id,
             )
         except Exception as e:
             raise RuntimeError(f"Failed to process scan {scan_path}: {e}") from e
@@ -345,7 +301,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SPECTRE Feature Extraction for LEAVS")
     parser.add_argument("--scan-paths-file", type=str, required=True, help="File containing scan file paths (.nii.gz), one per line")
     parser.add_argument("--seg-paths-file", type=str, required=True, help="File containing segmentation file paths (.nii.gz), one per line")
-    parser.add_argument("--output-paths-file", type=str, required=True, help="File containing organ:path pairs, one per line")
+    parser.add_argument("--output-root", type=str, required=True, help="Root output directory following workflow conventions")
+    parser.add_argument("--model-name", type=str, required=True, help="Feature model name")
+    parser.add_argument("--split", type=str, required=True, choices=["training", "validation", "test"], help="Dataset split")
     args = parser.parse_args()
 
     sys.exit(main(args))

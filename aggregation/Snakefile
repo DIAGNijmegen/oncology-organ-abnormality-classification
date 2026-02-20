@@ -28,93 +28,25 @@ def get_progress_file(wildcards):
     return OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{wildcards.split}/{wildcards.organ_name}/{wildcards.batch_id}_features.done"
 
 
-def get_output_paths_for_batch_key_mean(model_name, split, organ_name, aggregation_method, batch_id):
-    """Get all output paths for a batch for mean aggregation - returns list."""
-    batch_scans = get_scans_for_batch(model_name, split, organ_name, batch_id)
-    
-    output_paths = []
-    for scan_id in batch_scans:
-        output_path = OUTPUT_ROOT + f"/{model_name}/{organ_name}/{split}/features/aggregated/mean/{scan_id}.npz"
-        output_paths.append(output_path)
-    return output_paths
-
-
-def get_output_paths_for_batch_key_max(model_name, split, organ_name, aggregation_method, batch_id):
-    """Get all output paths for a batch for max aggregation - returns list."""
-    batch_scans = get_scans_for_batch(model_name, split, organ_name, batch_id)
-    
-    output_paths = []
-    for scan_id in batch_scans:
-        output_path = OUTPUT_ROOT + f"/{model_name}/{organ_name}/{split}/features/aggregated/max/{scan_id}.npz"
-        output_paths.append(output_path)
-    return output_paths
-
-
-def get_input_output_pairs_mean(wildcards):
-    """Get input-output pairs for mean aggregation."""
+def get_input_feature_paths_for_batch(wildcards):
+    """Get input feature paths for aggregation for a batch."""
     batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
     
-    pairs = []
+    input_paths = []
     for scan_id in batch_scans:
         input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
-        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/mean/{scan_id}.npz"
-        pairs.append((input_path, output_path))
-    return pairs
-
-
-def get_input_output_pairs_max(wildcards):
-    """Get input-output pairs for max aggregation."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
-    
-    pairs = []
-    for scan_id in batch_scans:
-        input_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/raw/{scan_id}.npz"
-        output_path = OUTPUT_ROOT + f"/{wildcards.model_name}/{wildcards.organ_name}/{wildcards.split}/features/aggregated/max/{scan_id}.npz"
-        pairs.append((input_path, output_path))
-    return pairs
+        input_paths.append(input_path)
+    return input_paths
 
 
 def join_input_features_mean(wildcards):
     """Join input feature paths for mean aggregation."""
-    pairs = get_input_output_pairs_mean(wildcards)
-    return "\n".join([pair[0] for pair in pairs])
-
-
-def join_output_features_mean(wildcards):
-    """Join output feature paths for mean aggregation."""
-    pairs = get_input_output_pairs_mean(wildcards)
-    return "\n".join([pair[1] for pair in pairs])
+    return "\n".join(get_input_feature_paths_for_batch(wildcards))
 
 
 def join_input_features_max(wildcards):
     """Join input feature paths for max aggregation."""
-    pairs = get_input_output_pairs_max(wildcards)
-    return "\n".join([pair[0] for pair in pairs])
-
-
-def join_output_features_max(wildcards):
-    """Join output feature paths for max aggregation."""
-    pairs = get_input_output_pairs_max(wildcards)
-    return "\n".join([pair[1] for pair in pairs])
-
-
-# Pre-generate outputs for each batch combination
-# Need to get model names and aggregation methods from experiments
-import json
-with open(f"{REPOSITORY_ROOT}/experiments.json", "r") as f:
-    EXPERIMENTS = json.load(f)
-
-batch_outputs_mean = {}
-batch_outputs_max = {}
-for experiment_name, experiment in EXPERIMENTS.items():
-    for aggregation_method in experiment['aggregation_methods']:
-        for organ_name in VALID_ORGANS:
-            for split in ["training", "validation", "test"]:
-                batch_ids = get_batch_ids_for_model_split_organ(experiment_name, split, organ_name)
-                for batch_id in batch_ids:
-                    key = (experiment_name, split, organ_name, aggregation_method, batch_id)
-                    batch_outputs_mean[key] = get_output_paths_for_batch_key_mean(experiment_name, split, organ_name, aggregation_method, batch_id)
-                    batch_outputs_max[key] = get_output_paths_for_batch_key_max(experiment_name, split, organ_name, aggregation_method, batch_id)
+    return "\n".join(get_input_feature_paths_for_batch(wildcards))
 
 
 rule aggregate_mean:
@@ -130,24 +62,23 @@ rule aggregate_mean:
         mem_mb=16000,
         time="1-00:00:00"
     params:
-        input_features_str = join_input_features_mean,
-        output_features_str = join_output_features_mean
+        input_features_str = join_input_features_mean
     shell:
         """
         input_features_file=$(mktemp /tmp/input_features.XXXXXX)
-        output_features_file=$(mktemp /tmp/output_features.XXXXXX)
         cat > "$input_features_file" << 'EOF_INPUT_FEATURES'
 {params.input_features_str}
 EOF_INPUT_FEATURES
-        cat > "$output_features_file" << 'EOF_OUTPUT_FEATURES'
-{params.output_features_str}
-EOF_OUTPUT_FEATURES
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.mean \
                 --input-features-file $input_features_file \
-                --output-features-file $output_features_file && \
-            rm -f $input_features_file $output_features_file && \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --split {wildcards.split} \
+                --organ-name {wildcards.organ_name} \
+                --aggregation-method mean && \
+            rm -f $input_features_file && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """
@@ -165,24 +96,23 @@ rule aggregate_max:
         mem_mb=16000,
         time="1-00:00:00"
     params:
-        input_features_str = join_input_features_max,
-        output_features_str = join_output_features_max
+        input_features_str = join_input_features_max
     shell:
         """
         input_features_file=$(mktemp /tmp/input_features.XXXXXX)
-        output_features_file=$(mktemp /tmp/output_features.XXXXXX)
         cat > "$input_features_file" << 'EOF_INPUT_FEATURES'
 {params.input_features_str}
 EOF_INPUT_FEATURES
-        cat > "$output_features_file" << 'EOF_OUTPUT_FEATURES'
-{params.output_features_str}
-EOF_OUTPUT_FEATURES
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
             /usr/local/bin/python3 -m aggregation.scripts.max \
                 --input-features-file $input_features_file \
-                --output-features-file $output_features_file && \
-            rm -f $input_features_file $output_features_file && \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --split {wildcards.split} \
+                --organ-name {wildcards.organ_name} \
+                --aggregation-method max && \
+            rm -f $input_features_file && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"
         """
