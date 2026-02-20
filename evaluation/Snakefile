@@ -8,12 +8,18 @@ leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_va
 get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 
+def _debug_log(msg):
+    print(f"[evaluation-debug] {msg}")
+
+
 def get_scans_for_split_evaluation(split):
     """Get all scan IDs for a split, independent of organ."""
     scans = set()
     for organ_name in VALID_ORGANS:
         scans.update(get_scans_for_split_and_organ(split, organ_name))
-    return sorted(scans)
+    sorted_scans = sorted(scans)
+    _debug_log(f"split={split}: n_scans={len(sorted_scans)}")
+    return sorted_scans
 
 
 def get_batch_ids_for_model_split_organ_evaluation(model_name, split, organ_name):
@@ -24,12 +30,20 @@ def get_batch_ids_for_model_split_organ_evaluation(model_name, split, organ_name
     for batch_idx in range(len(scan_batches)):
         batch_id = get_batch_id(batch_idx, len(scan_batches))
         batch_ids.append(batch_id)
+    _debug_log(
+        f"model={model_name} organ={organ_name} split={split}: "
+        f"n_batches={len(batch_ids)} batch_ids={batch_ids}"
+    )
     return batch_ids
 
 
 def get_aggregation_progress_files(wildcards):
     """Get all aggregation progress files for a given model/organ/aggregation_method combination."""
     progress_files = []
+    _debug_log(
+        f"collecting progress files for model={wildcards.model_name} "
+        f"organ={wildcards.organ_name} aggregation={wildcards.aggregation_method}"
+    )
     for split in ["training", "validation", "test"]:
         batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, wildcards.organ_name)
         for batch_id in batch_ids:
@@ -38,6 +52,12 @@ def get_aggregation_progress_files(wildcards):
             else:  # max
                 progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_max.done"
             progress_files.append(progress_file)
+    _debug_log(
+        f"final progress file count={len(progress_files)} for model={wildcards.model_name} "
+        f"organ={wildcards.organ_name} aggregation={wildcards.aggregation_method}"
+    )
+    for progress_file in progress_files:
+        _debug_log(f"  progress_file={progress_file}")
     return progress_files
 
 
