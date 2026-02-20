@@ -25,8 +25,8 @@ from util.sliding_window import sliding_window_3d
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
-INFERENCE_BATCH_SIZE = 8
-PREPROCESS_WORKERS = 8
+INFERENCE_BATCH_SIZE = 2
+PREPROCESS_WORKERS = 2
 
 
 def load_model():
