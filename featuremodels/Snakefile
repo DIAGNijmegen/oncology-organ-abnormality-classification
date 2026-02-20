@@ -142,7 +142,7 @@ EOF_SEG_PATHS
                 --split {wildcards.split} && \
             rm -f $scan_paths_file $seg_paths_file && \
             for done_file in {output.progress_files}; do \
-                mkdir -p $(dirname $done_file) && \
-                touch $done_file; \
+                mkdir -p $(dirname \$done_file) && \
+                touch \$done_file; \
             done"
             """
