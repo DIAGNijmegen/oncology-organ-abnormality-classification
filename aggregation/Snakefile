@@ -6,10 +6,11 @@ from util.snakemake_helpers import VALID_ORGANS
 
 def get_scans_for_split_aggregation(split):
     """Get all scan IDs for a split, independent of organ."""
-    scans = set()
-    for organ_name in VALID_ORGANS:
-        scans.update(get_scans_for_split_and_organ(split, organ_name))
-    return sorted(scans)
+    if split == "training":
+        return sorted(train_scan_ids_split)
+    if split == "validation":
+        return sorted(val_scan_ids_split)
+    return sorted(test_annotations.keys())
 
 
 def get_batch_ids_for_model_split_organ_aggregation(model_name, split, organ_name):

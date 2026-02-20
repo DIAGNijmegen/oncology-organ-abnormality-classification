@@ -14,10 +14,12 @@ def _debug_log(msg):
 
 def get_scans_for_split_evaluation(split):
     """Get all scan IDs for a split, independent of organ."""
-    scans = set()
-    for organ_name in VALID_ORGANS:
-        scans.update(get_scans_for_split_and_organ(split, organ_name))
-    sorted_scans = sorted(scans)
+    if split == "training":
+        sorted_scans = sorted(train_scan_ids_split)
+    elif split == "validation":
+        sorted_scans = sorted(val_scan_ids_split)
+    else:
+        sorted_scans = sorted(test_annotations.keys())
     _debug_log(f"split={split}: n_scans={len(sorted_scans)}")
     return sorted_scans
 
