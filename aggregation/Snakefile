@@ -4,9 +4,17 @@
 from util.snakemake_helpers import VALID_ORGANS
 
 
-def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
-    """Get all batch IDs for a given model/split/organ combination - harmonized with feature models."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
+def get_scans_for_split_aggregation(split):
+    """Get all scan IDs for a split, independent of organ."""
+    scans = set()
+    for organ_name in VALID_ORGANS:
+        scans.update(get_scans_for_split_and_organ(split, organ_name))
+    return sorted(scans)
+
+
+def get_batch_ids_for_model_split_organ_aggregation(model_name, split, organ_name):
+    """Get all batch IDs for a given model/split/organ combination."""
+    scans = get_scans_for_split_aggregation(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_ids = []
     for batch_idx in range(len(scan_batches)):
@@ -15,9 +23,9 @@ def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
     return batch_ids
 
 
-def get_scans_for_batch(model_name, split, organ_name, batch_id):
-    """Get scan IDs for a specific batch - harmonized with feature models."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
+def get_scans_for_batch_aggregation(split, batch_id):
+    """Get scan IDs for a specific batch."""
+    scans = get_scans_for_split_aggregation(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_idx = int(batch_id.split("_")[1])
     return scan_batches[batch_idx]
@@ -30,7 +38,7 @@ def get_progress_file(wildcards):
 
 def get_input_feature_paths_for_batch(wildcards):
     """Get input feature paths for aggregation for a batch."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
+    batch_scans = get_scans_for_batch_aggregation(wildcards.split, wildcards.batch_id)
     
     input_paths = []
     for scan_id in batch_scans:

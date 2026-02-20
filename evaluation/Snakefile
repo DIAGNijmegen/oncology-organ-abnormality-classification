@@ -1,16 +1,24 @@
 # Copyright Diagnostic Image Analysis Group, Radboudumc, Nijmegen, The Netherlands
 # Licensed under Apache-2.0
 
-from util.snakemake_helpers import setup_leavs_dataset
+from util.snakemake_helpers import setup_leavs_dataset, VALID_ORGANS
 
 # Set up LEAVS dataset information
 leavs_data = setup_leavs_dataset(DATASET_ROOT, val_ratio=0.2, seed=42, filter_valid_labels=True)
 get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 
-def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
-    """Get all batch IDs for a given model/split/organ combination - harmonized with feature models and aggregation."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
+def get_scans_for_split_evaluation(split):
+    """Get all scan IDs for a split, independent of organ."""
+    scans = set()
+    for organ_name in VALID_ORGANS:
+        scans.update(get_scans_for_split_and_organ(split, organ_name))
+    return sorted(scans)
+
+
+def get_batch_ids_for_model_split_organ_evaluation(model_name, split, organ_name):
+    """Get all batch IDs for a given model/split/organ combination."""
+    scans = get_scans_for_split_evaluation(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_ids = []
     for batch_idx in range(len(scan_batches)):
@@ -23,7 +31,7 @@ def get_aggregation_progress_files(wildcards):
     """Get all aggregation progress files for a given model/organ/aggregation_method combination."""
     progress_files = []
     for split in ["training", "validation", "test"]:
-        batch_ids = get_batch_ids_for_model_split_organ(wildcards.model_name, split, wildcards.organ_name)
+        batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, wildcards.organ_name)
         for batch_id in batch_ids:
             if wildcards.aggregation_method == "mean":
                 progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_mean.done"
