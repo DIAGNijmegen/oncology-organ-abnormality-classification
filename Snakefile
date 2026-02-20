@@ -40,9 +40,11 @@ get_scans_for_split_and_organ = leavs_data["get_scans_for_split_and_organ"]
 
 def create_batches(items, batch_size):
     """Create batches from a list of items."""
+    # Enforce deterministic batching independent of incoming list order.
+    ordered_items = sorted(items)
     batches = []
-    for i in range(0, len(items), batch_size):
-        batch = items[i:i + batch_size]
+    for i in range(0, len(ordered_items), batch_size):
+        batch = ordered_items[i:i + batch_size]
         batches.append(batch)
     return batches
 

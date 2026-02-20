@@ -80,8 +80,9 @@ def setup_leavs_dataset(
                 label = annotations[scan_id][organ_name]
                 if not filter_valid_labels or label in [0, 1]:
                     valid_scans.append(scan_id)
-        
-        return valid_scans
+
+        # Enforce deterministic ordering independent of directory/CSV traversal order.
+        return sorted(valid_scans)
     
     return {
         "train_annotations": train_annotations,
