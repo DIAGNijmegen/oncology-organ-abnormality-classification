@@ -168,7 +168,10 @@ rule compute_features:
         scan_paths = get_scan_paths_for_batch,
         seg_paths = get_seg_paths_for_batch
     output:
-        progress_file = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_features.done"
+        progress_files = expand(
+            OUTPUT_ROOT + "/{{model_name}}/progress/{{split}}/{done_organ}/{{batch_id}}_features.done",
+            done_organ=VALID_ORGANS
+        )
     resources:
         image = lambda wildcards: get_model_resources(wildcards)["image"],
         qos = "low",
@@ -204,6 +207,8 @@ EOF_OUTPUT_PATHS
                 --seg-paths-file $seg_paths_file \
                 --output-paths-file $output_paths_file && \
             rm -f $scan_paths_file $seg_paths_file $output_paths_file && \
-            mkdir -p $(dirname {output.progress_file}) && \
-            touch {output.progress_file}"
+            for done_file in {output.progress_files}; do \
+                mkdir -p $(dirname $done_file) && \
+                touch $done_file; \
+            done"
             """
