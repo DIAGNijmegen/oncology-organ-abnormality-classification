@@ -4,7 +4,7 @@
 from util.snakemake_helpers import VALID_ORGANS
 
 
-def get_scans_for_split(split):
+def get_scans_for_split_featuremodels(split):
     """Get all scan IDs for a split, independent of organ."""
     scans = set()
     for organ_name in VALID_ORGANS:
@@ -12,9 +12,9 @@ def get_scans_for_split(split):
     return sorted(scans)
 
 
-def get_scans_for_batch(split, batch_id):
+def get_scans_for_batch_featuremodels(split, batch_id):
     """Get scan IDs for a specific batch."""
-    scans = get_scans_for_split(split)
+    scans = get_scans_for_split_featuremodels(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_idx = int(batch_id.split("_")[1])
     return scan_batches[batch_idx]
@@ -22,7 +22,7 @@ def get_scans_for_batch(split, batch_id):
 
 def get_scan_paths_for_batch(wildcards):
     """Get scan paths for a batch."""
-    batch_scans = get_scans_for_batch(wildcards.split, wildcards.batch_id)
+    batch_scans = get_scans_for_batch_featuremodels(wildcards.split, wildcards.batch_id)
     
     scan_paths = []
     for scan_id in batch_scans:
@@ -36,7 +36,7 @@ def get_scan_paths_for_batch(wildcards):
 
 def get_seg_paths_for_batch(wildcards):
     """Get segmentation paths for a batch."""
-    batch_scans = get_scans_for_batch(wildcards.split, wildcards.batch_id)
+    batch_scans = get_scans_for_batch_featuremodels(wildcards.split, wildcards.batch_id)
     
     seg_paths = []
     for scan_id in batch_scans:
