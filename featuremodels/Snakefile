@@ -4,9 +4,20 @@
 from util.snakemake_helpers import VALID_ORGANS
 
 
+def get_scans_for_split(split):
+    """Get all scan IDs for a split, independent of organ."""
+    if split == "training":
+        scans = train_scan_ids_split
+    elif split == "validation":
+        scans = val_scan_ids_split
+    else:  # test
+        scans = test_scan_ids
+    return sorted(scans)
+
+
 def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
     """Get all batch IDs for a given model/split/organ combination."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
+    scans = get_scans_for_split(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_ids = []
     for batch_idx in range(len(scan_batches)):
@@ -15,9 +26,9 @@ def get_batch_ids_for_model_split_organ(model_name, split, organ_name):
     return batch_ids
 
 
-def get_scans_for_batch(model_name, split, organ_name, batch_id):
+def get_scans_for_batch(model_name, split, batch_id):
     """Get scan IDs for a specific batch."""
-    scans = get_scans_for_split_and_organ(split, organ_name)
+    scans = get_scans_for_split(split)
     scan_batches = create_batches(scans, BATCH_SIZE)
     batch_idx = int(batch_id.split("_")[1])
     return scan_batches[batch_idx]
@@ -25,7 +36,7 @@ def get_scans_for_batch(model_name, split, organ_name, batch_id):
 
 def get_scan_paths_for_batch(wildcards):
     """Get scan paths for a batch."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.batch_id)
     
     scan_paths = []
     for scan_id in batch_scans:
@@ -39,7 +50,7 @@ def get_scan_paths_for_batch(wildcards):
 
 def get_seg_paths_for_batch(wildcards):
     """Get segmentation paths for a batch."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.batch_id)
     
     seg_paths = []
     for scan_id in batch_scans:
@@ -50,7 +61,7 @@ def get_seg_paths_for_batch(wildcards):
 
 def get_output_paths_for_batch_key(model_name, split, organ_name, batch_id):
     """Get all output paths for a batch - returns list."""
-    batch_scans = get_scans_for_batch(model_name, split, organ_name, batch_id)
+    batch_scans = get_scans_for_batch(model_name, split, batch_id)
     
     output_paths = []
     for organ in VALID_ORGANS:
@@ -62,7 +73,7 @@ def get_output_paths_for_batch_key(model_name, split, organ_name, batch_id):
 
 def get_output_paths_dict_for_batch(wildcards):
     """Get output paths dictionary organized by organ."""
-    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.organ_name, wildcards.batch_id)
+    batch_scans = get_scans_for_batch(wildcards.model_name, wildcards.split, wildcards.batch_id)
     
     output_paths = {}
     for organ_name in VALID_ORGANS:
