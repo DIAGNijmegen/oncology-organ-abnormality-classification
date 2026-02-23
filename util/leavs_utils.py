@@ -122,12 +122,18 @@ def parse_train_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[
     with open(csv_path, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            type_annotation = row['type_annotation']
+            type_annotation = row.get('type_annotation', '')
             # Only process 'labels' rows, skip 'urgency'
             if type_annotation != 'labels':
                 continue
             scan_id = _extract_scan_id_from_train_subjectid(row['subjectid_studyid'])
             organ = row['organ']
+            normal = row.get('normal', '').strip()
+            
+            # Filter based on "normal" column:
+            # - If neither 0 nor 1, skip this organ/scan (do not use for training or evaluation)
+            if normal not in ['0', '1']:
+                continue
             
             # Map organ name to standard name
             standard_organ = CSV_ORGAN_TO_STANDARD.get(organ.lower(), organ.lower().replace(' ', '_'))
