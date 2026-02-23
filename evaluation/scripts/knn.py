@@ -100,7 +100,7 @@ def main(args):
     # Combine and deduplicate subgroups (evaluate on all subgroups present in either split)
     all_subgroups = sorted(set(train_available_subgroups + test_available_subgroups))
     
-    k_values = [10, 20, 100, 200]
+    k_values = [1, 3, 5, 10, 20, 30]
     results = []
     
     for k in k_values:
