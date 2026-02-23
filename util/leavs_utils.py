@@ -182,6 +182,11 @@ def parse_train_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[
     with open(csv_path, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
+            type_annotation = row['type_annotation']
+            # Only process 'labels' rows, skip 'urgency'
+            if type_annotation != 'labels':
+                continue
+
             # Extract scan ID from subjectid_studyid
             subjectid = row['subjectid_studyid']
             if '_' in subjectid:
@@ -234,14 +239,13 @@ def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[s
         reader = csv.DictReader(f)
         
         for row in reader:
-            scan_id_raw = row['image1']
-            scan_id = scan_id_raw.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
-            
             type_annotation = row['type_annotation']
-            
             # Only process 'labels' rows, skip 'urgency'
             if type_annotation != 'labels':
                 continue
+
+            scan_id_raw = row['image1']
+            scan_id = scan_id_raw.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
             
             if scan_id not in subgroup_annotations:
                 subgroup_annotations[scan_id] = {}
