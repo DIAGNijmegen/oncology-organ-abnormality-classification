@@ -157,8 +157,13 @@ def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[s
     
     Subgroups: postsurgical_absent, enlarged_atrophy, diffuse, focal
     Note: postsurgical_absent and enlarged_atrophy are combined columns in test CSV
+    
+    Uses majority vote across all labelers for each organ and subgroup.
+    If there's a tie, defaults to 0 (normal/absent).
     """
-    subgroup_annotations = {}
+    # First pass: collect all labeler votes for each scan, organ, and subgroup
+    # Structure: {scan_id: {organ: {subgroup: [list of values from all labelers]}}}
+    labeler_votes = {}
     
     with open(csv_path, 'r') as f:
         reader = csv.DictReader(f)
@@ -171,15 +176,15 @@ def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[s
 
             scan_id = _extract_scan_id_from_test_image1(row['image1'])
             
-            if scan_id not in subgroup_annotations:
-                subgroup_annotations[scan_id] = {}
+            if scan_id not in labeler_votes:
+                labeler_votes[scan_id] = {}
             
             for organ_name in ORGAN_NAMES:
                 # Map organ name to standard name
                 standard_organ = CSV_ORGAN_TO_STANDARD.get(organ_name.lower(), organ_name.lower().replace(' ', '_'))
                 
-                if standard_organ not in subgroup_annotations[scan_id]:
-                    subgroup_annotations[scan_id][standard_organ] = {}
+                if standard_organ not in labeler_votes[scan_id]:
+                    labeler_votes[scan_id][standard_organ] = {}
                 
                 # Extract subgroup columns for this organ
                 # Test CSV has: {organ}_postsurgical_absent, {organ}_enlarged_atrophy, {organ}_diffuse, {organ}_focal
@@ -196,12 +201,33 @@ def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[s
                     if val and val != '':
                         try:
                             val_float = float(val)
-                            if val_float == 1.0:
-                                subgroup_annotations[scan_id][standard_organ][subgroup_key] = 1
-                            elif val_float == 0.0:
-                                subgroup_annotations[scan_id][standard_organ][subgroup_key] = 0
+                            if val_float in [0.0, 1.0]:
+                                if subgroup_key not in labeler_votes[scan_id][standard_organ]:
+                                    labeler_votes[scan_id][standard_organ][subgroup_key] = []
+                                labeler_votes[scan_id][standard_organ][subgroup_key].append(int(val_float))
                         except (ValueError, KeyError):
                             pass
+    
+    # Second pass: apply majority vote to get final values
+    subgroup_annotations = {}
+    for scan_id, organs in labeler_votes.items():
+        if scan_id not in subgroup_annotations:
+            subgroup_annotations[scan_id] = {}
+        
+        for organ_name, subgroups in organs.items():
+            if organ_name not in subgroup_annotations[scan_id]:
+                subgroup_annotations[scan_id][organ_name] = {}
+            
+            for subgroup_key, votes in subgroups.items():
+                if len(votes) == 0:
+                    continue
+                
+                # Majority vote: if more 1s than 0s, then 1, else 0
+                # In case of tie, default to 0
+                count_ones = sum(votes)
+                count_zeros = len(votes) - count_ones
+                final_value = 1 if count_ones > count_zeros else 0
+                subgroup_annotations[scan_id][organ_name][subgroup_key] = final_value
     
     return subgroup_annotations
 
