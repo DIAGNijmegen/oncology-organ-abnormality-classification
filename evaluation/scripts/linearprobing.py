@@ -280,8 +280,8 @@ def main(args):
             args.organ_name, subgroup_name, subgroup_value=1
         )
         
-        # Only evaluate if we have samples in at least one split
-        if len(X_train_sub) > 0 or len(X_val_sub) > 0 or len(X_test_sub) > 0:
+        # Only evaluate if we have samples in all splits
+        if len(X_train_sub) > 0 and len(X_val_sub) > 0 and len(X_test_sub) > 0:
             train_loader_sub, val_loader_sub, test_loader_sub = make_data_loaders(
                 X_train_sub, y_train_sub, X_val_sub, y_val_sub, X_test_sub, y_test_sub, batch_size=128
             )
