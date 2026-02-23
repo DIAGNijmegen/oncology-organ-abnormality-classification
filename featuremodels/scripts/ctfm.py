@@ -82,14 +82,7 @@ def extract_features_for_organ(
     
     patches = []
     positions = []
-    # get random integer
-    import random
-    random_int = random.randint(0, 1000000)
     for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
-        # Debug: save patch as nifti
-        patch_nifti = nib.Nifti1Image(patch, np.eye(4))
-        nib.save(patch_nifti, f"/tmp/patch_{z}_{y}_{x}_{random_int}.nii.gz")
-
         patches.append(patch)
         positions.append((z, y, x))
 
@@ -161,10 +154,6 @@ def process_scan_for_organ(
         return False
     
     organ_crop, bbox_origin = result
-
-    # Debug: save organ crop as nifti
-    organ_crop_nifti = nib.Nifti1Image(organ_crop, np.eye(4))
-    nib.save(organ_crop_nifti, f"/tmp/organ_crop_{organ_name}.nii.gz")
     
     # Extract features
     features, positions = extract_features_for_organ(model, organ_crop, window_size)
