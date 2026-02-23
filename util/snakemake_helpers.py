@@ -10,8 +10,9 @@ import os
 from typing import Dict, List, Tuple
 from util.leavs_utils import (
     get_leavs_scans,
-    parse_train_annotations,
-    parse_test_annotations,
+    parse_train_subgroup_annotations,
+    parse_test_subgroup_annotations,
+    infer_labels_from_subgroups,
     create_train_val_split,
 )
 
@@ -49,9 +50,11 @@ def setup_leavs_dataset(
     train_csv = os.path.join(leavs_root, "amos_train_annotations.csv")
     test_csv = os.path.join(leavs_root, "amos_test_annotations.csv")
     
-    # Parse annotations
-    train_annotations = parse_train_annotations(train_csv)
-    test_annotations = parse_test_annotations(test_csv)
+    # Parse subgroup annotations and infer labels
+    train_subgroups = parse_train_subgroup_annotations(train_csv)
+    test_subgroups = parse_test_subgroup_annotations(test_csv)
+    train_annotations = infer_labels_from_subgroups(train_subgroups)
+    test_annotations = infer_labels_from_subgroups(test_subgroups)
     
     # Get scan IDs
     train_scan_ids, test_scan_ids = get_leavs_scans(dataset_root)

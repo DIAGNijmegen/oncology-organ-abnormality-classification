@@ -6,10 +6,9 @@ import glob
 from typing import Tuple, Optional, Dict, List
 import numpy as np
 from util.leavs_utils import (
-    parse_train_annotations, 
-    parse_test_annotations,
     parse_train_subgroup_annotations,
     parse_test_subgroup_annotations,
+    infer_labels_from_subgroups,
 )
 
 
@@ -211,10 +210,16 @@ def load_and_validate_annotations(
     """
     Load and validate annotations from CSV files.
     Returns: (train_annotations, test_annotations)
+    
+    Annotations are inferred from subgroup annotations:
+    - If any subgroup has value 1, then label = 1 (abnormal)
+    - Otherwise, label = 0 (normal)
     """
     try:
-        train_annotations = parse_train_annotations(annotations_train_csv)
-        test_annotations = parse_test_annotations(annotations_test_csv)
+        train_subgroups = parse_train_subgroup_annotations(annotations_train_csv)
+        test_subgroups = parse_test_subgroup_annotations(annotations_test_csv)
+        train_annotations = infer_labels_from_subgroups(train_subgroups)
+        test_annotations = infer_labels_from_subgroups(test_subgroups)
     except Exception as e:
         raise RuntimeError(f"Failed to parse annotations: {e}") from e
     

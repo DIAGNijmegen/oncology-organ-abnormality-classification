@@ -35,133 +35,71 @@ CSV_ORGAN_TO_STANDARD = {
     "large bowel": "large_bowel",
 }
 
+# Organ names in CSV files
+ORGAN_NAMES = [
+    'spleen',
+    'liver',
+    'right kidney',
+    'left kidney',
+    'stomach',
+    'pancreas',
+    'gallbladder',
+    'small bowel',
+    'large bowel',
+]
 
-def parse_train_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
+
+def _extract_scan_id_from_train_subjectid(subjectid: str) -> str:
     """
-    Parse training annotations CSV.
-    Returns: {scan_id: {organ: normality_label}}
+    Extract scan ID from training CSV subjectid_studyid field.
+    Format: ./imagesTr/amos_5478.nii.gz_./imagesTr/amos_5478.nii.gz
+    """
+    if '_' in subjectid:
+        first_part = subjectid.split('_')[0]
+        scan_id = os.path.basename(first_part).replace('.nii.gz', '')
+    else:
+        scan_id = os.path.basename(subjectid).replace('.nii.gz', '')
+    return scan_id
+
+
+def _extract_scan_id_from_test_image1(image1: str) -> str:
+    """
+    Extract scan ID from test CSV image1 field.
+    Format: amos_0029.nii.gz.txt or amos_0029.nii.gz
+    """
+    return image1.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
+
+
+def infer_labels_from_subgroups(
+    subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]]
+) -> Dict[str, Dict[str, int]]:
+    """
+    Infer normality labels from subgroup annotations.
     
-    Note: Labels preserve original CSV semantics: 0 = normal, 1 = abnormal
+    Logic: For each organ, if ANY subgroup has value 1, then label = 1 (abnormal).
+    Otherwise, label = 0 (normal).
+    
+    Args:
+        subgroup_annotations: {scan_id: {organ: {subgroup_name: value}}}
+    
+    Returns:
+        {scan_id: {organ: normality_label}} where 0 = normal, 1 = abnormal
     """
     annotations = {}
     
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            # Extract scan ID from subjectid_studyid
-            subjectid = row['subjectid_studyid']
-            # Format: ./imagesTr/amos_5478.nii.gz_./imagesTr/amos_5478.nii.gz
-            # Extract the filename part before the underscore
-            if '_' in subjectid:
-                # Split by underscore and take the first part
-                first_part = subjectid.split('_')[0]
-                # Extract filename from path
-                scan_id = os.path.basename(first_part).replace('.nii.gz', '')
-            else:
-                # Fallback: try to extract from path
-                scan_id = os.path.basename(subjectid).replace('.nii.gz', '')
-            
-            organ = row['organ']
-            normal = row['normal']
-            
-            # Filter for valid normality labels (0 or 1)
-            if normal in ['0', '1']:
-                if scan_id not in annotations:
-                    annotations[scan_id] = {}
-                
-                # Map organ name to standard name
-                standard_organ = CSV_ORGAN_TO_STANDARD.get(organ.lower(), organ.lower().replace(' ', '_'))
-                annotations[scan_id][standard_organ] = int(normal)
-    
-    return annotations
-
-
-def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
-    """
-    Parse test annotations CSV.
-    Returns: {scan_id: {organ: normality_label}}
-    
-    Logic: For each organ, look at all organ-specific columns (excluding quality).
-    - If ANY column has value "1" → abnormal → label = 1
-    - If ALL columns have value "0" → normal → label = 0
-    """
-    annotations = {}
-    
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
+    for scan_id, organs in subgroup_annotations.items():
+        if scan_id not in annotations:
+            annotations[scan_id] = {}
         
-        for row in reader:
-            scan_id_raw = row['image1']
-            # Format: amos_0029.nii.gz.txt or amos_0029.nii.gz
-            scan_id = scan_id_raw.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
+        for organ_name, subgroups in organs.items():
+            # Check if any subgroup has value 1 (abnormality present)
+            has_abnormality = any(
+                value == 1 for value in subgroups.values()
+            )
             
-            type_annotation = row['type_annotation']
-            
-            # Only process 'labels' rows, skip 'urgency'
-            if type_annotation != 'labels':
-                continue
-            
-            if scan_id not in annotations:
-                annotations[scan_id] = {}
-            
-            # Organ names in the CSV
-            organ_names = [
-                'spleen',
-                'liver',
-                'right kidney',
-                'left kidney',
-                'stomach',
-                'pancreas',
-                'gallbladder',
-                'small bowel',
-                'large bowel',
-            ]
-            
-            # Get all column names
-            all_columns = row.keys()
-            
-            for organ_name in organ_names:
-                # Find all columns for this organ (excluding quality)
-                organ_columns = [
-                    col for col in all_columns 
-                    if col.startswith(f"{organ_name}_") and not col.endswith("_quality")
-                ]
-                
-                if len(organ_columns) == 0:
-                    continue
-                
-                # Check values in all organ-specific columns
-                has_abnormality = False
-                all_zero = True
-                
-                for col in organ_columns:
-                    val = row[col].strip()
-                    if val and val != '':
-                        try:
-                            val_float = float(val)
-                            if val_float == 1.0:
-                                has_abnormality = True
-                                all_zero = False
-                                break  # Found abnormality, no need to check further
-                            elif val_float != 0.0:
-                                all_zero = False
-                        except (ValueError, KeyError):
-                            pass
-                
-                # Determine label: 0 = normal, 1 = abnormal
-                if has_abnormality:
-                    # Any column has 1 → abnormal
-                    label = 1
-                elif all_zero:
-                    # All columns are 0 → normal
-                    label = 0
-                else:
-                    # Mixed or unclear → skip this organ for this scan
-                    continue
-                
-                # Map organ name to standard name
-                standard_organ = CSV_ORGAN_TO_STANDARD.get(organ_name.lower(), organ_name.lower().replace(' ', '_'))
-                annotations[scan_id][standard_organ] = label
+            # Infer label: 1 = abnormal, 0 = normal
+            label = 1 if has_abnormality else 0
+            annotations[scan_id][organ_name] = label
     
     return annotations
 
@@ -186,21 +124,8 @@ def parse_train_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[
             # Only process 'labels' rows, skip 'urgency'
             if type_annotation != 'labels':
                 continue
-
-            # Extract scan ID from subjectid_studyid
-            subjectid = row['subjectid_studyid']
-            if '_' in subjectid:
-                first_part = subjectid.split('_')[0]
-                scan_id = os.path.basename(first_part).replace('.nii.gz', '')
-            else:
-                scan_id = os.path.basename(subjectid).replace('.nii.gz', '')
-            
+            scan_id = _extract_scan_id_from_train_subjectid(row['subjectid_studyid'])
             organ = row['organ']
-            normal = row['normal']
-            
-            # Only process rows with valid normality labels
-            if normal not in ['0', '1']:
-                continue
             
             # Map organ name to standard name
             standard_organ = CSV_ORGAN_TO_STANDARD.get(organ.lower(), organ.lower().replace(' ', '_'))
@@ -239,31 +164,17 @@ def parse_test_subgroup_annotations(csv_path: str) -> Dict[str, Dict[str, Dict[s
         reader = csv.DictReader(f)
         
         for row in reader:
-            type_annotation = row['type_annotation']
+            type_annotation = row.get('type_annotation', '')
             # Only process 'labels' rows, skip 'urgency'
             if type_annotation != 'labels':
                 continue
 
-            scan_id_raw = row['image1']
-            scan_id = scan_id_raw.replace('.nii.gz.txt', '').replace('.txt', '').replace('.nii.gz', '')
+            scan_id = _extract_scan_id_from_test_image1(row['image1'])
             
             if scan_id not in subgroup_annotations:
                 subgroup_annotations[scan_id] = {}
             
-            # Organ names in the CSV
-            organ_names = [
-                'spleen',
-                'liver',
-                'right kidney',
-                'left kidney',
-                'stomach',
-                'pancreas',
-                'gallbladder',
-                'small bowel',
-                'large bowel',
-            ]
-            
-            for organ_name in organ_names:
+            for organ_name in ORGAN_NAMES:
                 # Map organ name to standard name
                 standard_organ = CSV_ORGAN_TO_STANDARD.get(organ_name.lower(), organ_name.lower().replace(' ', '_'))
                 
