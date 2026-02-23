@@ -40,6 +40,8 @@ def parse_train_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
     """
     Parse training annotations CSV.
     Returns: {scan_id: {organ: normality_label}}
+    
+    Note: Labels preserve original CSV semantics: 0 = normal, 1 = abnormal
     """
     annotations = {}
     
@@ -80,8 +82,8 @@ def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
     Returns: {scan_id: {organ: normality_label}}
     
     Logic: For each organ, look at all organ-specific columns (excluding quality).
-    - If ANY column has value "1" → abnormal → label = 0
-    - If ALL columns have value "0" → normal → label = 1
+    - If ANY column has value "1" → abnormal → label = 1
+    - If ALL columns have value "0" → normal → label = 0
     """
     annotations = {}
     
@@ -146,13 +148,13 @@ def parse_test_annotations(csv_path: str) -> Dict[str, Dict[str, int]]:
                         except (ValueError, KeyError):
                             pass
                 
-                # Determine label: 1 = normal, 0 = abnormal
+                # Determine label: 0 = normal, 1 = abnormal
                 if has_abnormality:
                     # Any column has 1 → abnormal
-                    label = 0
+                    label = 1
                 elif all_zero:
                     # All columns are 0 → normal
-                    label = 1
+                    label = 0
                 else:
                     # Mixed or unclear → skip this organ for this scan
                     continue
