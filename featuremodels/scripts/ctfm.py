@@ -24,8 +24,8 @@ from util.sliding_window import sliding_window_3d
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
-INFERENCE_BATCH_SIZE = 2
-PREPROCESS_WORKERS = 2
+INFERENCE_BATCH_SIZE = 4
+PREPROCESS_WORKERS = 4
 
 
 def load_model():
@@ -49,7 +49,6 @@ def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
             b_max=1,
             clip=True,
         ),
-        CropForegroundd(keys=["image"], source_key="image"),
         EnsureTyped(keys=["image"]),
     ])
     
@@ -259,7 +258,7 @@ def main(args):
     organ_names = VALID_ORGANS
     
     # Window size for CT-FM: 128x128x128
-    window_size = (128, 128, 128)
+    window_size = (128, 128, 48)
     
     # Load model once for the entire batch
     print("Loading model...")
