@@ -4,6 +4,7 @@
 import csv
 import os
 import json
+import re
 import numpy as np
 import nibabel as nib
 from typing import Dict, List, Tuple, Optional
@@ -53,13 +54,14 @@ def _extract_scan_id_from_train_subjectid(subjectid: str) -> str:
     """
     Extract scan ID from training CSV subjectid_studyid field.
     Format: ./imagesTr/amos_5478.nii.gz_./imagesTr/amos_5478.nii.gz
+    Returns: amos_5478
     """
-    if '_' in subjectid:
-        first_part = subjectid.split('_')[0]
-        scan_id = os.path.basename(first_part).replace('.nii.gz', '')
-    else:
-        scan_id = os.path.basename(subjectid).replace('.nii.gz', '')
-    return scan_id
+    # Use regex to extract amos_XXXX pattern (where XXXX is digits)
+    match = re.search(r'amos_\d+', subjectid)
+    if match:
+        return match.group(0)
+    
+    raise ValueError(f"Could not extract scan ID from subjectid: {subjectid}")
 
 
 def _extract_scan_id_from_test_image1(image1: str) -> str:
