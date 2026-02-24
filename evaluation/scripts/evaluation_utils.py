@@ -244,17 +244,18 @@ def load_subgroup_annotations(
     return train_subgroups, test_subgroups
 
 
-def filter_by_subgroup(
+def filter_normal_and_subgroup_abnormal(
     X: np.ndarray,
     y: np.ndarray,
     scan_ids: List[str],
     subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]],
     organ_name: str,
     subgroup_name: str,
-    subgroup_value: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Filter features and labels by subgroup criteria.
+    Filter features and labels to include:
+    - All normal samples (label=0)
+    - All abnormal samples (label=1) with the specified subgroup value=1
     
     Args:
         X: Feature array
@@ -262,8 +263,7 @@ def filter_by_subgroup(
         scan_ids: List of scan IDs corresponding to X and y
         subgroup_annotations: Subgroup annotations dict
         organ_name: Name of the organ
-        subgroup_name: Name of the subgroup (e.g., 'diffuse', 'focal', 'postsurgical')
-        subgroup_value: Value to filter for (default: 1)
+        subgroup_name: Name of the subgroup (e.g., 'diffuse', 'focal')
     
     Returns:
         Filtered (X_filtered, y_filtered)
@@ -276,11 +276,15 @@ def filter_by_subgroup(
     
     filtered_indices = []
     for idx, scan_id in enumerate(scan_ids):
-        if scan_id in subgroup_annotations:
-            organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
-            # Check if this sample matches the subgroup criteria
-            if subgroup_name in organ_subgroups:
-                if organ_subgroups[subgroup_name] == subgroup_value:
+        # Include all normal samples (label=0)
+        if y[idx] == 0:
+            filtered_indices.append(idx)
+        # Include abnormal samples (label=1) with the specified subgroup
+        elif y[idx] == 1:
+            if scan_id in subgroup_annotations:
+                organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+                # Check if this abnormal sample has the specified subgroup value=1
+                if subgroup_name in organ_subgroups and organ_subgroups[subgroup_name] == 1:
                     filtered_indices.append(idx)
     
     if len(filtered_indices) == 0:

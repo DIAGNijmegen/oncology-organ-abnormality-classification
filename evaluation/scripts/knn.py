@@ -20,8 +20,7 @@ from .evaluation_utils import (
     load_subgroup_annotations,
     validate_features_and_labels,
     save_metrics,
-    filter_by_subgroup,
-    get_available_subgroups,
+    filter_normal_and_subgroup_abnormal,
 )
 
 
@@ -93,13 +92,6 @@ def main(args):
     X_val_scaled = scaler.transform(X_val) if len(X_val) > 0 else X_val
     X_test_scaled = scaler.transform(X_test) if len(X_test) > 0 else X_test
     
-    # Get available subgroups for train and test
-    train_available_subgroups = get_available_subgroups(train_subgroups, args.organ_name)
-    test_available_subgroups = get_available_subgroups(test_subgroups, args.organ_name)
-    
-    # Combine and deduplicate subgroups (evaluate on all subgroups present in either split)
-    all_subgroups = sorted(set(train_available_subgroups + test_available_subgroups))
-    
     k_values = [1, 3, 5, 10, 20, 30]
     results = []
     
@@ -107,121 +99,84 @@ def main(args):
         knn = KNeighborsClassifier(n_neighbors=k)
         knn.fit(X_train_scaled, y_train)
         
-        # Evaluate on training set (overall)
-        y_pred_train = knn.predict(X_train_scaled)
-        y_prob_train = knn.predict_proba(X_train_scaled)[:, 1] if len(set(y_train)) == 2 else None
-        acc_train = accuracy_score(y_train, y_pred_train)
-        auc_train = roc_auc_score(y_train, y_prob_train) if y_prob_train is not None else None
+        result = {"k": k, "evaluation_groups": {}}
         
-        # Evaluate on validation set (overall)
-        acc_val = None
-        auc_val = None
-        if len(X_val) > 0:
-            y_pred_val = knn.predict(X_val_scaled)
-            y_prob_val = knn.predict_proba(X_val_scaled)[:, 1] if len(set(y_train)) == 2 else None
-            acc_val = accuracy_score(y_val, y_pred_val)
-            auc_val = roc_auc_score(y_val, y_prob_val) if y_prob_val is not None else None
+        # Define evaluation groups: all, normal+diffuse, normal+focal
+        evaluation_groups = [
+            ("all", None),  # All samples
+            ("normal_and_diffuse", "diffuse"),  # Normal + diffuse abnormal
+            ("normal_and_focal", "focal"),  # Normal + focal abnormal
+        ]
         
-        # Evaluate on test set (overall)
-        acc_test = None
-        auc_test = None
-        if len(X_test) > 0:
-            y_pred_test = knn.predict(X_test_scaled)
-            y_prob_test = knn.predict_proba(X_test_scaled)[:, 1] if len(set(y_train)) == 2 else None
-            acc_test = accuracy_score(y_test, y_pred_test)
-            auc_test = roc_auc_score(y_test, y_prob_test) if y_prob_test is not None else None
-        
-        # Initialize result dict for this k
-        result = {
-            "k": k,
-            "overall": {
-                "train": {"accuracy": float(acc_train), "auc": float(auc_train) if auc_train is not None else None},
-                "validation": {"accuracy": float(acc_val) if acc_val is not None else None, "auc": float(auc_val) if auc_val is not None else None},
-                "test": {"accuracy": float(acc_test) if acc_test is not None else None, "auc": float(auc_test) if auc_test is not None else None},
-            },
-            "subgroups": {},
-        }
-        
-        # Evaluate on each subgroup
-        for subgroup_name in all_subgroups:
-            # Filter train split
-            X_train_sub, y_train_sub = filter_by_subgroup(
-                X_train, y_train, train_scan_ids, train_subgroups,
-                args.organ_name, subgroup_name, subgroup_value=1
-            )
+        for group_name, subgroup_name in evaluation_groups:
+            group_metrics = {}
             
-            # Filter validation split
-            X_val_sub, y_val_sub = filter_by_subgroup(
-                X_val, y_val, val_scan_ids, val_subgroups,
-                args.organ_name, subgroup_name, subgroup_value=1
-            )
-            
-            # Filter test split
-            X_test_sub, y_test_sub = filter_by_subgroup(
-                X_test, y_test, test_scan_ids, test_subgroups,
-                args.organ_name, subgroup_name, subgroup_value=1
-            )
-            
-            # Only evaluate if we have samples
-            if len(X_train_sub) > 0 or len(X_val_sub) > 0 or len(X_test_sub) > 0:
-                # Scale filtered features
-                X_train_sub_scaled = scaler.transform(X_train_sub) if len(X_train_sub) > 0 else X_train_sub
-                X_val_sub_scaled = scaler.transform(X_val_sub) if len(X_val_sub) > 0 else X_val_sub
-                X_test_sub_scaled = scaler.transform(X_test_sub) if len(X_test_sub) > 0 else X_test_sub
-                
-                # Evaluate on training set
-                acc_train_sub = None
-                auc_train_sub = None
-                if len(X_train_sub) > 0:
-                    y_pred_train_sub = knn.predict(X_train_sub_scaled)
-                    y_prob_train_sub = knn.predict_proba(X_train_sub_scaled)[:, 1] if len(set(y_train)) == 2 else None
-                    acc_train_sub = accuracy_score(y_train_sub, y_pred_train_sub)
-                    auc_train_sub = roc_auc_score(y_train_sub, y_prob_train_sub) if y_prob_train_sub is not None else None
-                
-                # Evaluate on validation set
-                acc_val_sub = None
-                auc_val_sub = None
-                if len(X_val_sub) > 0:
-                    y_pred_val_sub = knn.predict(X_val_sub_scaled)
-                    y_prob_val_sub = knn.predict_proba(X_val_sub_scaled)[:, 1] if len(set(y_train)) == 2 else None
-                    acc_val_sub = accuracy_score(y_val_sub, y_pred_val_sub)
-                    auc_val_sub = roc_auc_score(y_val_sub, y_prob_val_sub) if y_prob_val_sub is not None else None
-                
-                # Evaluate on test set
-                acc_test_sub = None
-                auc_test_sub = None
-                if len(X_test_sub) > 0:
-                    y_pred_test_sub = knn.predict(X_test_sub_scaled)
-                    y_prob_test_sub = knn.predict_proba(X_test_sub_scaled)[:, 1] if len(set(y_train)) == 2 else None
-                    acc_test_sub = accuracy_score(y_test_sub, y_pred_test_sub)
-                    auc_test_sub = roc_auc_score(y_test_sub, y_prob_test_sub) if y_prob_test_sub is not None else None
-                
-                subgroup_metrics = {
-                    "train": {
-                        "accuracy": float(acc_train_sub) if acc_train_sub is not None else None,
-                        "auc": float(auc_train_sub) if auc_train_sub is not None else None,
-                        "n_samples": int(len(X_train_sub)),
-                    },
-                    "validation": {
-                        "accuracy": float(acc_val_sub) if acc_val_sub is not None else None,
-                        "auc": float(auc_val_sub) if auc_val_sub is not None else None,
-                        "n_samples": int(len(X_val_sub)),
-                    },
-                    "test": {
-                        "accuracy": float(acc_test_sub) if acc_test_sub is not None else None,
-                        "auc": float(auc_test_sub) if auc_test_sub is not None else None,
-                        "n_samples": int(len(X_test_sub)),
-                    },
-                }
+            # Filter data for this group
+            if subgroup_name is None:
+                # All samples - no filtering
+                X_train_group, y_train_group = X_train, y_train
+                X_val_group, y_val_group = X_val, y_val
+                X_test_group, y_test_group = X_test, y_test
             else:
-                # No samples for this subgroup
-                subgroup_metrics = {
-                    "train": {"accuracy": None, "auc": None, "n_samples": 0},
-                    "validation": {"accuracy": None, "auc": None, "n_samples": 0},
-                    "test": {"accuracy": None, "auc": None, "n_samples": 0},
+                # Normal + specific subgroup abnormal
+                X_train_group, y_train_group = filter_normal_and_subgroup_abnormal(
+                    X_train, y_train, train_scan_ids, train_subgroups,
+                    args.organ_name, subgroup_name
+                )
+                X_val_group, y_val_group = filter_normal_and_subgroup_abnormal(
+                    X_val, y_val, val_scan_ids, val_subgroups,
+                    args.organ_name, subgroup_name
+                )
+                X_test_group, y_test_group = filter_normal_and_subgroup_abnormal(
+                    X_test, y_test, test_scan_ids, test_subgroups,
+                    args.organ_name, subgroup_name
+                )
+            
+            # Evaluate on each split
+            splits = [
+                ("train", X_train_group, y_train_group, X_train_scaled, X_train),
+                ("validation", X_val_group, y_val_group, X_val_scaled, X_val),
+                ("test", X_test_group, y_test_group, X_test_scaled, X_test),
+            ]
+            
+            for split_name, X_split, y_split, X_split_scaled_full, X_split_full in splits:
+                if len(X_split) == 0:
+                    group_metrics[split_name] = {
+                        "accuracy": None,
+                        "auc": None,
+                        "n_normal": 0,
+                        "n_abnormal": 0,
+                    }
+                    continue
+                
+                # Scale features: use pre-scaled if all samples, otherwise scale filtered
+                if subgroup_name is None:
+                    # All samples - use pre-scaled arrays
+                    X_split_scaled = X_split_scaled_full
+                else:
+                    # Filtered samples - scale the filtered features
+                    X_split_scaled = scaler.transform(X_split)
+                
+                # Predictions
+                y_pred = knn.predict(X_split_scaled)
+                y_prob = knn.predict_proba(X_split_scaled)[:, 1] if len(set(y_train)) == 2 else None
+                
+                # Metrics
+                acc = accuracy_score(y_split, y_pred)
+                auc = roc_auc_score(y_split, y_prob) if y_prob is not None else None
+                
+                # Count normal and abnormal samples
+                n_normal = int(np.sum(y_split == 0))
+                n_abnormal = int(np.sum(y_split == 1))
+                
+                group_metrics[split_name] = {
+                    "accuracy": float(acc),
+                    "auc": float(auc) if auc is not None else None,
+                    "n_normal": n_normal,
+                    "n_abnormal": n_abnormal,
                 }
             
-            result["subgroups"][subgroup_name] = subgroup_metrics
+            result["evaluation_groups"][group_name] = group_metrics
         
         results.append(result)
     

@@ -21,8 +21,7 @@ from .evaluation_utils import (
     load_subgroup_annotations,
     validate_features_and_labels,
     save_metrics,
-    filter_by_subgroup,
-    get_available_subgroups,
+    filter_normal_and_subgroup_abnormal,
 )
 
 
@@ -227,95 +226,80 @@ def main(args):
                 best_checkpoint_path = os.path.join(output_checkpoint, "best_model.pth")
                 torch.save(model.state_dict(), best_checkpoint_path)
 
-    # Evaluate on all splits (overall metrics)
-    train_acc, train_auc = evaluate(model, train_loader, device)
-    val_acc, val_auc = evaluate(model, val_loader, device)
-    test_acc, test_auc = evaluate(model, test_loader, device)
-
     metrics = {
-        "overall": {
-            "train": {
-                "accuracy": float(train_acc) if train_acc is not None else None,
-                "auc": float(train_auc) if train_auc is not None else None,
-            },
-            "validation": {
-                "accuracy": float(val_acc) if val_acc is not None else None,
-                "auc": float(val_auc) if val_auc is not None else None,
-            },
-            "test": {
-                "accuracy": float(test_acc) if test_acc is not None else None,
-                "auc": float(test_auc) if test_auc is not None else None,
-            },
-        },
-        "subgroups": {},
+        "evaluation_groups": {},
         "best_checkpoint": best_checkpoint_path,
     }
     
-    # Get available subgroups for train and test
-    train_available_subgroups = get_available_subgroups(train_subgroups, args.organ_name)
-    test_available_subgroups = get_available_subgroups(test_subgroups, args.organ_name)
+    # Define evaluation groups: all, normal+diffuse, normal+focal
+    evaluation_groups = [
+        ("all", None),  # All samples
+        ("normal_and_diffuse", "diffuse"),  # Normal + diffuse abnormal
+        ("normal_and_focal", "focal"),  # Normal + focal abnormal
+    ]
     
-    # Combine and deduplicate subgroups (evaluate on all subgroups present in either split)
-    all_subgroups = sorted(set(train_available_subgroups + test_available_subgroups))
-    
-    # Evaluate on each subgroup
-    for subgroup_name in all_subgroups:
-        subgroup_metrics = {}
+    for group_name, subgroup_name in evaluation_groups:
+        group_metrics = {}
         
-        # Filter train split
-        X_train_sub, y_train_sub = filter_by_subgroup(
-            X_train, y_train, train_scan_ids, train_subgroups,
-            args.organ_name, subgroup_name, subgroup_value=1
-        )
-        
-        # Filter validation split
-        X_val_sub, y_val_sub = filter_by_subgroup(
-            X_val, y_val, val_scan_ids, val_subgroups,
-            args.organ_name, subgroup_name, subgroup_value=1
-        )
-        
-        # Filter test split
-        X_test_sub, y_test_sub = filter_by_subgroup(
-            X_test, y_test, test_scan_ids, test_subgroups,
-            args.organ_name, subgroup_name, subgroup_value=1
-        )
-        
-        # Only evaluate if we have samples in all splits
-        if len(X_train_sub) > 0 and len(X_val_sub) > 0 and len(X_test_sub) > 0:
-            train_loader_sub, val_loader_sub, test_loader_sub = make_data_loaders(
-                X_train_sub, y_train_sub, X_val_sub, y_val_sub, X_test_sub, y_test_sub, batch_size=128
-            )
-            
-            train_acc_sub, train_auc_sub = evaluate(model, train_loader_sub, device)
-            val_acc_sub, val_auc_sub = evaluate(model, val_loader_sub, device)
-            test_acc_sub, test_auc_sub = evaluate(model, test_loader_sub, device)
-            
-            subgroup_metrics = {
-                "train": {
-                    "accuracy": float(train_acc_sub) if train_acc_sub is not None else None,
-                    "auc": float(train_auc_sub) if train_auc_sub is not None else None,
-                    "n_samples": int(len(X_train_sub)),
-                },
-                "validation": {
-                    "accuracy": float(val_acc_sub) if val_acc_sub is not None else None,
-                    "auc": float(val_auc_sub) if val_auc_sub is not None else None,
-                    "n_samples": int(len(X_val_sub)),
-                },
-                "test": {
-                    "accuracy": float(test_acc_sub) if test_acc_sub is not None else None,
-                    "auc": float(test_auc_sub) if test_auc_sub is not None else None,
-                    "n_samples": int(len(X_test_sub)),
-                },
-            }
+        # Filter data for this group
+        if subgroup_name is None:
+            # All samples - no filtering
+            X_train_group, y_train_group = X_train, y_train
+            X_val_group, y_val_group = X_val, y_val
+            X_test_group, y_test_group = X_test, y_test
         else:
-            # No samples for this subgroup
-            subgroup_metrics = {
-                "train": {"accuracy": None, "auc": None, "n_samples": 0},
-                "validation": {"accuracy": None, "auc": None, "n_samples": 0},
-                "test": {"accuracy": None, "auc": None, "n_samples": 0},
+            # Normal + specific subgroup abnormal
+            X_train_group, y_train_group = filter_normal_and_subgroup_abnormal(
+                X_train, y_train, train_scan_ids, train_subgroups,
+                args.organ_name, subgroup_name
+            )
+            X_val_group, y_val_group = filter_normal_and_subgroup_abnormal(
+                X_val, y_val, val_scan_ids, val_subgroups,
+                args.organ_name, subgroup_name
+            )
+            X_test_group, y_test_group = filter_normal_and_subgroup_abnormal(
+                X_test, y_test, test_scan_ids, test_subgroups,
+                args.organ_name, subgroup_name
+            )
+        
+        # Create data loaders for this group
+        train_loader_group, val_loader_group, test_loader_group = make_data_loaders(
+            X_train_group, y_train_group, X_val_group, y_val_group, 
+            X_test_group, y_test_group, batch_size=128
+        )
+        
+        # Evaluate on each split
+        splits = [
+            ("train", train_loader_group, y_train_group),
+            ("validation", val_loader_group, y_val_group),
+            ("test", test_loader_group, y_test_group),
+        ]
+        
+        for split_name, loader, y_split in splits:
+            if loader is None or len(y_split) == 0:
+                group_metrics[split_name] = {
+                    "accuracy": None,
+                    "auc": None,
+                    "n_normal": 0,
+                    "n_abnormal": 0,
+                }
+                continue
+            
+            # Evaluate
+            acc, auc = evaluate(model, loader, device)
+            
+            # Count normal and abnormal samples
+            n_normal = int(np.sum(y_split == 0))
+            n_abnormal = int(np.sum(y_split == 1))
+            
+            group_metrics[split_name] = {
+                "accuracy": float(acc) if acc is not None else None,
+                "auc": float(auc) if auc is not None else None,
+                "n_normal": n_normal,
+                "n_abnormal": n_abnormal,
             }
         
-        metrics["subgroups"][subgroup_name] = subgroup_metrics
+        metrics["evaluation_groups"][group_name] = group_metrics
 
     # Save metrics
     save_metrics(output_metrics, metrics)
