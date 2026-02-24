@@ -198,6 +198,7 @@ def main(args):
 
     best_val_acc = 0.0
     best_checkpoint_path = None
+    best_epoch = None
     
     for epoch in range(1, 10001):
         model.train()
@@ -223,12 +224,24 @@ def main(args):
             val_acc, _ = evaluate(model, val_loader, device)
             if val_acc is not None and val_acc > best_val_acc:
                 best_val_acc = val_acc
+                best_epoch = epoch
                 best_checkpoint_path = os.path.join(output_checkpoint, "best_model.pth")
                 torch.save(model.state_dict(), best_checkpoint_path)
 
+    # Load best model checkpoint if available, otherwise use final model
+    if best_checkpoint_path is not None and os.path.exists(best_checkpoint_path):
+        model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
+        print(f"Loaded best model from {best_checkpoint_path}")
+    else:
+        print("No best checkpoint found, using final model state")
+
     metrics = {
         "evaluation_groups": {},
-        "best_checkpoint": best_checkpoint_path,
+        "best_model": {
+            "checkpoint_path": best_checkpoint_path,
+            "validation_accuracy": float(best_val_acc) if best_epoch is not None else None,
+            "epoch": best_epoch,
+        },
     }
     
     # Define evaluation groups: all, normal+diffuse, normal+focal
