@@ -16,7 +16,8 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "attention"
     ]
   },
   "curia": {
@@ -36,7 +37,8 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "attention"
     ]
   },
   "umedpt": {
@@ -56,7 +58,8 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "attention"
     ]
   },
   "spectre": {
@@ -76,7 +79,8 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "attention"
     ]
   },
   "tapct": {
@@ -96,7 +100,8 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "attention"
     ]
   }
 }
