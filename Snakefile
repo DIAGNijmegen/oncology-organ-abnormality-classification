@@ -60,10 +60,17 @@ output_files = []
 for experiment_name, experiment in EXPERIMENTS.items():
     for organ_name in VALID_ORGANS:
         for evaluation_mode in experiment['evaluation_modes']:
-            for aggregation_method in experiment['aggregation_methods']:
+            if evaluation_mode == "attention":
+                # Attention doesn't use aggregation, outputs to metrics/attention/attention.json
                 output_files.append(
-                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
+                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/attention/attention.json"
                 )
+            else:
+                # Other evaluation modes use aggregation
+                for aggregation_method in experiment['aggregation_methods']:
+                    output_files.append(
+                        OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
+                    )
 
 rule all:
     input: output_files
