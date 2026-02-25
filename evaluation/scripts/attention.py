@@ -310,17 +310,18 @@ def main(args):
 
     train_loader, val_loader, test_loader = make_data_loaders(
         patch_features_train, y_train, patch_features_val, y_val, 
-        patch_features_test, y_test, batch_size=32
+        patch_features_test, y_test, batch_size=128
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
     criterion = nn.BCEWithLogitsLoss()
 
-    best_val_acc = 0.0
+    best_val_auc = 0.0
     best_checkpoint_path = None
     best_epoch = None
+    epochs_without_improvement = 0
     
-    for epoch in range(1, 10001):
+    for epoch in range(1, 1001):
         model.train()
         epoch_loader = tqdm(train_loader, desc=f"Epoch {epoch}", unit="batch")
         for patches_batch, masks_batch, y_batch in epoch_loader:
@@ -336,14 +337,22 @@ def main(args):
 
             epoch_loader.set_postfix(loss=loss.item())
         
-        # Evaluate on validation set and save best model
-        if val_loader is not None and epoch % 100 == 0:
-            val_acc, _ = evaluate(model, val_loader, device)
-            if val_acc is not None and val_acc > best_val_acc:
-                best_val_acc = val_acc
+        # Evaluate on validation set every epoch and save best model
+        if val_loader is not None:
+            val_acc, val_auc = evaluate(model, val_loader, device)
+            if val_auc is not None and val_auc > best_val_auc:
+                best_val_auc = val_auc
                 best_epoch = epoch
+                epochs_without_improvement = 0
                 best_checkpoint_path = os.path.join(output_checkpoint, "best_model_attention.pth")
                 torch.save(model.state_dict(), best_checkpoint_path)
+            else:
+                epochs_without_improvement += 1
+            
+            # Early stopping: stop if no improvement in last 50 epochs
+            if epochs_without_improvement >= 50:
+                print(f"Early stopping at epoch {epoch}: no improvement in validation AUC for 50 epochs")
+                break
 
     # Load best model checkpoint if available, otherwise use final model
     if best_checkpoint_path is not None and os.path.exists(best_checkpoint_path):
@@ -356,7 +365,7 @@ def main(args):
         "evaluation_groups": {},
         "best_model": {
             "checkpoint_path": best_checkpoint_path,
-            "validation_accuracy": float(best_val_acc) if best_epoch is not None else None,
+            "validation_auc": float(best_val_auc) if best_epoch is not None else None,
             "epoch": best_epoch,
         },
     }
