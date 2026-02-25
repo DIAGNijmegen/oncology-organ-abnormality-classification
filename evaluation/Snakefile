@@ -94,7 +94,7 @@ rule evaluate_linear_probing:
         annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
-        qos="idle",
+        qos="low",
         cpus=8,
         gpus=1,
         mem_mb=24000,
@@ -124,7 +124,7 @@ rule evaluate_attention:
         annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
-        qos="idle",
+        qos="low",
         cpus=8,
         gpus=1,
         mem_mb=24000,
