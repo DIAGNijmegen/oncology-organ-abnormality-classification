@@ -44,6 +44,17 @@ def get_aggregation_progress_files(wildcards):
     return progress_files
 
 
+def get_feature_progress_files(wildcards):
+    """Get all feature extraction progress files for a given model/organ combination."""
+    progress_files = []
+    for split in ["training", "validation", "test"]:
+        batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, wildcards.organ_name)
+        for batch_id in batch_ids:
+            progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_features.done"
+            progress_files.append(progress_file)
+    return progress_files
+
+
 rule evaluate_knn:
     input:
         aggregation_progress_files = get_aggregation_progress_files
@@ -96,6 +107,35 @@ rule evaluate_linear_probing:
                 --output-root {OUTPUT_ROOT} \
                 --model-name {wildcards.model_name} \
                 --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name {wildcards.organ_name} \
+                --seed 0"
+        """
+
+rule evaluate_attention:
+    input:
+        feature_progress_files = get_feature_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/attention/attention.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/attention/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=8,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.attention \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
                 --annotations-train-csv {params.annotations_train_csv} \
                 --annotations-test-csv {params.annotations_test_csv} \
                 --organ-name {wildcards.organ_name} \

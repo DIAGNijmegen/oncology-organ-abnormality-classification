@@ -52,6 +52,18 @@ def get_feature_dir(output_root: str, model_name: str, organ_name: str, split: s
     )
 
 
+def get_raw_feature_dir(output_root: str, model_name: str, organ_name: str, split: str) -> str:
+    """Get directory path for raw (non-aggregated) features."""
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        split,
+        "features",
+        "raw",
+    )
+
+
 def get_metrics_output_path(output_root: str, model_name: str, organ_name: str, aggregation_method: str, evaluation_mode: str) -> str:
     return os.path.join(
         output_root,
@@ -61,6 +73,29 @@ def get_metrics_output_path(output_root: str, model_name: str, organ_name: str, 
         "aggregated",
         aggregation_method,
         f"{evaluation_mode}.json",
+    )
+
+
+def get_attention_metrics_output_path(output_root: str, model_name: str, organ_name: str) -> str:
+    """Get metrics output path for attention evaluation (uses raw features, no aggregation)."""
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        "metrics",
+        "attention",
+        "attention.json",
+    )
+
+
+def get_attention_checkpoint_output_dir(output_root: str, model_name: str, organ_name: str) -> str:
+    """Get checkpoint output directory for attention evaluation."""
+    return os.path.join(
+        output_root,
+        model_name,
+        organ_name,
+        "checkpoints",
+        "attention",
     )
 
 
@@ -138,6 +173,84 @@ def load_features_and_labels(
     if return_scan_ids:
         return np.array(features_list), np.array(labels_list), scan_ids_list
     return np.array(features_list), np.array(labels_list)
+
+
+def load_raw_features_and_labels(
+    feature_dir: str, 
+    annotations: dict, 
+    organ_name: str,
+    return_scan_ids: bool = False
+) -> Tuple[List[np.ndarray], np.ndarray, Optional[list]]:
+    """
+    Load raw patch features and labels from feature directory.
+    Returns patch features as a list of arrays (one per sample) since each sample
+    can have a different number of patches.
+    
+    Args:
+        feature_dir: Directory containing .npz feature files with raw patch features
+        annotations: Dictionary mapping scan_id to organ labels
+        organ_name: Name of the organ
+        return_scan_ids: If True, also return list of scan IDs
+    
+    Returns:
+        (features_list, labels, scan_ids) where features_list is a list of arrays
+        Each array has shape (n_patches, flattened_dim) where each patch is flattened to 1D
+    """
+    feature_files = glob.glob(os.path.join(feature_dir, "*.npz"))
+    
+    features_list = []
+    labels_list = []
+    scan_ids_list = []
+    
+    for feature_file in sorted(feature_files):
+        scan_id = os.path.basename(feature_file).replace(".npz", "")
+        
+        # Get label from annotations
+        if scan_id in annotations and organ_name in annotations[scan_id]:
+            label = annotations[scan_id][organ_name]
+            if label in [0, 1]:  # Only include valid labels
+                data = np.load(feature_file)
+                
+                # Skip placeholder files
+                is_placeholder = data.get("is_placeholder", False)
+                if is_placeholder:
+                    continue
+                
+                patch_features = data["features"]  # Shape: (n_patches, ...) - patches can have any shape
+                
+                # Skip empty features
+                if patch_features.size == 0 or len(patch_features) == 0:
+                    continue
+                
+                # Flatten each patch to 1D vector
+                # Handle different input shapes:
+                if len(patch_features.shape) == 1:
+                    # Single patch case - flatten and reshape to (1, flattened_dim)
+                    patch_features_flat = patch_features.flatten()
+                    patch_features = patch_features_flat.reshape(1, -1)
+                else:
+                    # Multi-dimensional: (n_patches, ...) - flatten each patch individually
+                    n_patches = patch_features.shape[0]
+                    flattened_patches = []
+                    for i in range(n_patches):
+                        # Flatten each patch to 1D vector
+                        flattened_patch = patch_features[i].flatten()
+                        flattened_patches.append(flattened_patch)
+                    patch_features = np.array(flattened_patches)  # Shape: (n_patches, flattened_dim)
+                
+                features_list.append(patch_features)
+                labels_list.append(label)
+                if return_scan_ids:
+                    scan_ids_list.append(scan_id)
+    
+    if len(features_list) == 0:
+        if return_scan_ids:
+            return [], np.array([]), []
+        return [], np.array([])
+    
+    if return_scan_ids:
+        return features_list, np.array(labels_list), scan_ids_list
+    return features_list, np.array(labels_list)
 
 
 def validate_evaluation_inputs(
