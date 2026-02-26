@@ -159,12 +159,13 @@ def make_data_loaders(
 def evaluate(model, data_loader, device, return_attention=False):
     """Evaluate model on a data loader."""
     if data_loader is None:
-        return None, None, None
+        return None, None, None, None
     
     model.eval()
     all_logits = []
     all_true_labels = []
     all_attention_weights = []
+    all_masks = []
 
     with torch.no_grad():
         for patches_batch, masks_batch, y_batch in data_loader:
@@ -173,6 +174,7 @@ def evaluate(model, data_loader, device, return_attention=False):
             if return_attention:
                 logits, attention_weights = model(patches_batch, mask=masks_batch, return_attention=True)
                 all_attention_weights.append(attention_weights.cpu())
+                all_masks.append(masks_batch.cpu())
             else:
                 logits = model(patches_batch, mask=masks_batch)
             all_logits.append(logits.cpu())
@@ -195,50 +197,55 @@ def evaluate(model, data_loader, device, return_attention=False):
             average="macro",
         )
     
-    attention_weights_tensor = None
+    attention_weights_list = None
+    masks_list = None
     if return_attention and len(all_attention_weights) > 0:
-        attention_weights_tensor = torch.cat(all_attention_weights, dim=0)
+        attention_weights_list = all_attention_weights
+        masks_list = all_masks
     
-    return accuracy, auc_value, attention_weights_tensor
+    return accuracy, auc_value, attention_weights_list, masks_list
 
 
-def compute_attention_statistics(attention_weights, masks):
+def compute_attention_statistics(attention_weights_list, masks_list):
     """
     Compute standard deviation and entropy of attention weights.
     
     Args:
-        attention_weights: [n_samples, n_patches] tensor of attention weights
-        masks: [n_samples, n_patches] tensor of masks (True for real patches)
+        attention_weights_list: List of tensors, each [batch_size, n_patches]
+        masks_list: List of tensors, each [batch_size, n_patches] (True for real patches)
     
     Returns:
-        (std_dev, entropy) - mean across samples
+        (std_dev, entropy) - mean across all samples
     """
-    if attention_weights is None:
+    if attention_weights_list is None or len(attention_weights_list) == 0:
         return None, None
-    
-    attention_weights = attention_weights.numpy()
-    masks = masks.numpy()
     
     std_devs = []
     entropies = []
     
-    for i in range(attention_weights.shape[0]):
-        # Get attention weights for real patches only
-        sample_weights = attention_weights[i][masks[i]]
+    # Process each batch
+    for attention_weights_batch, masks_batch in zip(attention_weights_list, masks_list):
+        attention_weights_batch = attention_weights_batch.numpy()
+        masks_batch = masks_batch.numpy()
         
-        if len(sample_weights) == 0:
-            continue
-        
-        # Standard deviation
-        std_dev = float(np.std(sample_weights))
-        std_devs.append(std_dev)
-        
-        # Entropy: -sum(p * log(p))
-        # Add small epsilon to avoid log(0)
-        epsilon = 1e-10
-        sample_weights_safe = sample_weights + epsilon
-        entropy = float(-np.sum(sample_weights_safe * np.log(sample_weights_safe)))
-        entropies.append(entropy)
+        # Process each sample in the batch
+        for i in range(attention_weights_batch.shape[0]):
+            # Get attention weights for real patches only
+            sample_weights = attention_weights_batch[i][masks_batch[i]]
+            
+            if len(sample_weights) == 0:
+                continue
+            
+            # Standard deviation
+            std_dev = float(np.std(sample_weights))
+            std_devs.append(std_dev)
+            
+            # Entropy: -sum(p * log(p))
+            # Add small epsilon to avoid log(0)
+            epsilon = 1e-10
+            sample_weights_safe = sample_weights + epsilon
+            entropy = float(-np.sum(sample_weights_safe * np.log(sample_weights_safe)))
+            entropies.append(entropy)
     
     if len(std_devs) == 0:
         return None, None
@@ -401,7 +408,7 @@ def main(args):
         
         # Evaluate on validation set every epoch and save best model
         if val_loader is not None:
-            val_acc, val_auc, _ = evaluate(model, val_loader, device, return_attention=False)
+            val_acc, val_auc, _, _ = evaluate(model, val_loader, device, return_attention=False)
             if val_auc is not None and val_auc > best_val_auc:
                 best_val_auc = val_auc
                 best_epoch = epoch
@@ -496,20 +503,10 @@ def main(args):
                 continue
             
             # Evaluate with attention weights
-            acc, auc, attention_weights = evaluate(model, loader, device, return_attention=True)
+            acc, auc, attention_weights_list, masks_list = evaluate(model, loader, device, return_attention=True)
             
             # Compute attention statistics
-            # We need to collect masks to compute statistics properly
-            masks_list = []
-            if attention_weights is not None:
-                model.eval()
-                with torch.no_grad():
-                    for patches_batch, masks_batch, _ in loader:
-                        masks_list.append(masks_batch)
-                all_masks = torch.cat(masks_list, dim=0) if len(masks_list) > 0 else None
-                std_dev, entropy = compute_attention_statistics(attention_weights, all_masks)
-            else:
-                std_dev, entropy = None, None
+            std_dev, entropy = compute_attention_statistics(attention_weights_list, masks_list)
             
             # Count normal and abnormal samples
             n_normal = int(np.sum(y_split == 0))
