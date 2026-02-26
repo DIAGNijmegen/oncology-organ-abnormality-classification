@@ -57,9 +57,9 @@ def process_single_file(input_path, output_path):
     bbox_origin = data.get("bbox_origin", None)
     organ_name = data.get("organ_name", None)
     
-    # Aggregate using element-wise mean along first axis (patches)
+    # Aggregate using element-wise median along first axis (patches)
     # This preserves all other dimensions
-    aggregated_features = np.mean(patch_features, axis=0)
+    aggregated_features = np.median(patch_features, axis=0)
     
     # Save aggregated features
     save_dict = {
@@ -75,7 +75,7 @@ def process_single_file(input_path, output_path):
     
     np.savez(output_path, **save_dict)
     
-    print(f"Mean aggregated features saved to {output_path}")
+    print(f"Median aggregated features saved to {output_path}")
     print(f"Aggregated {len(patch_features)} patches. Input shape: {patch_features.shape}, Output shape: {aggregated_features.shape}")
 
 
@@ -108,7 +108,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    description = "Mean Aggregation for Organ Features"
+    description = "Median Aggregation for Organ Features"
     args_parser = get_args_parser(description=description)
     args = args_parser.parse_args()
 

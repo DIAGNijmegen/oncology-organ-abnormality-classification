@@ -57,9 +57,15 @@ def process_single_file(input_path, output_path):
     bbox_origin = data.get("bbox_origin", None)
     organ_name = data.get("organ_name", None)
     
-    # Aggregate using element-wise mean along first axis (patches)
-    # This preserves all other dimensions
-    aggregated_features = np.mean(patch_features, axis=0)
+    # Compute mean and std along first axis (patches)
+    mean_features = np.mean(patch_features, axis=0)
+    std_features = np.std(patch_features, axis=0)
+    
+    # Concatenate mean and std along the last dimension
+    # Flatten both to 1D, then concatenate
+    mean_flat = mean_features.flatten()
+    std_flat = std_features.flatten()
+    aggregated_features = np.concatenate([mean_flat, std_flat], axis=0)
     
     # Save aggregated features
     save_dict = {
@@ -75,7 +81,7 @@ def process_single_file(input_path, output_path):
     
     np.savez(output_path, **save_dict)
     
-    print(f"Mean aggregated features saved to {output_path}")
+    print(f"Mean+Std concatenated aggregated features saved to {output_path}")
     print(f"Aggregated {len(patch_features)} patches. Input shape: {patch_features.shape}, Output shape: {aggregated_features.shape}")
 
 
@@ -108,7 +114,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    description = "Mean Aggregation for Organ Features"
+    description = "Mean+Std Concatenation Aggregation for Organ Features"
     args_parser = get_args_parser(description=description)
     args = args_parser.parse_args()
 

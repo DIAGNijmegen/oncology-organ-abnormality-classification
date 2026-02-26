@@ -12,7 +12,10 @@
     ],
     "aggregation_methods": [
       "mean",
-      "max"
+      "max",
+      "std",
+      "median",
+      "mean_std"
     ],
     "evaluation_modes": [
       "knn",
@@ -33,7 +36,10 @@
     ],
     "aggregation_methods": [
       "mean",
-      "max"
+      "max",
+      "std",
+      "median",
+      "mean_std"
     ],
     "evaluation_modes": [
       "knn",
@@ -54,7 +60,10 @@
     ],
     "aggregation_methods": [
       "mean",
-      "max"
+      "max",
+      "std",
+      "median",
+      "mean_std"
     ],
     "evaluation_modes": [
       "knn",
@@ -75,7 +84,10 @@
     ],
     "aggregation_methods": [
       "mean",
-      "max"
+      "max",
+      "std",
+      "median",
+      "mean_std"
     ],
     "evaluation_modes": [
       "knn",
@@ -96,7 +108,10 @@
     ],
     "aggregation_methods": [
       "mean",
-      "max"
+      "max",
+      "std",
+      "median",
+      "mean_std"
     ],
     "evaluation_modes": [
       "knn",

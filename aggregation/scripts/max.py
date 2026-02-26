@@ -16,7 +16,7 @@ def get_args_parser(description: Optional[str] = None, add_help: bool = True):
     parser.add_argument("--model-name", required=True, help="Feature model name")
     parser.add_argument("--split", required=True, choices=["training", "validation", "test"], help="Dataset split")
     parser.add_argument("--organ-name", required=True, help="Organ name")
-    parser.add_argument("--aggregation-method", required=True, choices=["mean", "max"], help="Aggregation method")
+    parser.add_argument("--aggregation-method", required=True, choices=["mean", "max", "std", "median", "mean_std"], help="Aggregation method")
     return parser
 
 

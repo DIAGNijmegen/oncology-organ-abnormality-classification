@@ -18,7 +18,7 @@ def get_base_args_parser(description: Optional[str] = None, add_help: bool = Tru
     parser = argparse.ArgumentParser(description=description, add_help=add_help)
     parser.add_argument("--output-root", type=str, required=True, help="Workflow output root directory")
     parser.add_argument("--model-name", type=str, required=True, help="Feature model name")
-    parser.add_argument("--aggregation-method", type=str, required=True, choices=["mean", "max"], help="Aggregation method")
+    parser.add_argument("--aggregation-method", type=str, required=True, choices=["mean", "max", "std", "median", "mean_std"], help="Aggregation method")
     parser.add_argument(
         "--annotations-train-csv",
         type=str,
