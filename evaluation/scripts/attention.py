@@ -310,7 +310,7 @@ def main(args):
 
     train_loader, val_loader, test_loader = make_data_loaders(
         patch_features_train, y_train, patch_features_val, y_val, 
-        patch_features_test, y_test, batch_size=128
+        patch_features_test, y_test, batch_size=64
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
