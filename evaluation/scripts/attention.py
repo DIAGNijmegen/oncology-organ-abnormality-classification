@@ -38,11 +38,8 @@ class AttentionMIL(nn.Module):
         # mask: [batch_size, n_patches] - True for real patches, False for padding
         batch_size, n_patches, embedding_dim = patches.shape
         
-        # L2 normalize embeddings before attention
-        patches_normalized = F.normalize(patches, p=2, dim=2)  # [batch_size, n_patches, embedding_dim]
-        
         # Reshape for attention computation
-        patches_flat = patches_normalized.view(-1, embedding_dim)  # [batch_size * n_patches, embedding_dim]
+        patches_flat = patches.view(-1, embedding_dim)  # [batch_size * n_patches, embedding_dim]
         
         # Compute attention weights
         A = torch.tanh(self.attention_V(patches_flat))  # [batch_size * n_patches, hidden_dim]
@@ -55,9 +52,9 @@ class AttentionMIL(nn.Module):
         
         A = torch.softmax(A, dim=1)  # [batch_size, n_patches]
         
-        # Weighted sum of patches (using normalized patches)
+        # Weighted sum of patches
         A_expanded = A.unsqueeze(-1)  # [batch_size, n_patches, 1]
-        z = torch.sum(A_expanded * patches_normalized, dim=1)  # [batch_size, embedding_dim]
+        z = torch.sum(A_expanded * patches, dim=1)  # [batch_size, embedding_dim]
         
         # Classification
         out = self.classifier(z)  # [batch_size, 1]
@@ -382,7 +379,7 @@ def main(args):
         patch_features_test, y_test, batch_size=64
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
     criterion = nn.BCEWithLogitsLoss()
 
     best_val_auc = 0.0
