@@ -408,7 +408,7 @@ def main(args):
         patch_features_test, y_test, batch_size=64
     )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
     criterion = nn.BCEWithLogitsLoss()
 
     best_val_auc = 0.0
