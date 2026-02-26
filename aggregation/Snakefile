@@ -68,8 +68,8 @@ def join_input_features_median(wildcards):
     return "\n".join(get_input_feature_paths_for_batch(wildcards))
 
 
-def join_input_features_mean_std(wildcards):
-    """Join input feature paths for mean_std aggregation."""
+def join_input_features_meanstd(wildcards):
+    """Join input feature paths for meanstd aggregation."""
     return "\n".join(get_input_feature_paths_for_batch(wildcards))
 
 
@@ -209,11 +209,11 @@ EOF_INPUT_FEATURES
             touch {output.progress_file_agg}"
         """
 
-rule aggregate_mean_std:
+rule aggregate_meanstd:
     input:
         progress_file = get_progress_file
     output:
-        progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_mean_std.done"
+        progress_file_agg = OUTPUT_ROOT + "/{model_name}/progress/{split}/{organ_name}/{batch_id}_meanstd.done"
     resources:
         image = "jtagscherer/evalblocks-core:0.0.1",
         qos="idle",
@@ -222,7 +222,7 @@ rule aggregate_mean_std:
         mem_mb=16000,
         time="1-00:00:00"
     params:
-        input_features_str = join_input_features_mean_std
+        input_features_str = join_input_features_meanstd
     shell:
         """
         input_features_file=$(mktemp /tmp/input_features.XXXXXX)
@@ -231,13 +231,13 @@ rule aggregate_mean_std:
 EOF_INPUT_FEATURES
         ./run_from_repository.sh "{REPOSITORY_ROOT}" \
             "cd {REPOSITORY_ROOT} && \
-            /usr/local/bin/python3 -m aggregation.scripts.mean_std \
+            /usr/local/bin/python3 -m aggregation.scripts.meanstd \
                 --input-features-file $input_features_file \
                 --output-root {OUTPUT_ROOT} \
                 --model-name {wildcards.model_name} \
                 --split {wildcards.split} \
                 --organ-name {wildcards.organ_name} \
-                --aggregation-method mean_std && \
+                --aggregation-method meanstd && \
             rm -f $input_features_file && \
             mkdir -p $(dirname {output.progress_file_agg}) && \
             touch {output.progress_file_agg}"

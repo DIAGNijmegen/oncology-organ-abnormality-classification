@@ -69,8 +69,8 @@ for experiment_name, experiment in EXPERIMENTS.items():
                 # Other evaluation modes use aggregation
                 for aggregation_method in experiment['aggregation_methods']:
                     output_files.append(
-                        OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
-                    )
+                    OUTPUT_ROOT + f"/{experiment_name}/{organ_name}/metrics/aggregated/{aggregation_method}/{evaluation_mode}.json"
+                )
 
 rule all:
     input: output_files

@@ -120,17 +120,17 @@ def main(args):
             else:
                 # Normal + specific subgroup abnormal
                 X_train_group, y_train_group = filter_normal_and_subgroup_abnormal(
-                    X_train, y_train, train_scan_ids, train_subgroups,
+                X_train, y_train, train_scan_ids, train_subgroups,
                     args.organ_name, subgroup_name
-                )
+            )
                 X_val_group, y_val_group = filter_normal_and_subgroup_abnormal(
-                    X_val, y_val, val_scan_ids, val_subgroups,
+                X_val, y_val, val_scan_ids, val_subgroups,
                     args.organ_name, subgroup_name
-                )
+            )
                 X_test_group, y_test_group = filter_normal_and_subgroup_abnormal(
-                    X_test, y_test, test_scan_ids, test_subgroups,
+                X_test, y_test, test_scan_ids, test_subgroups,
                     args.organ_name, subgroup_name
-                )
+            )
             
             # Evaluate on each split
             splits = [

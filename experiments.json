@@ -15,7 +15,7 @@
       "max",
       "std",
       "median",
-      "mean_std"
+      "meanstd"
     ],
     "evaluation_modes": [
       "knn",
@@ -39,7 +39,7 @@
       "max",
       "std",
       "median",
-      "mean_std"
+      "meanstd"
     ],
     "evaluation_modes": [
       "knn",
@@ -63,7 +63,7 @@
       "max",
       "std",
       "median",
-      "mean_std"
+      "meanstd"
     ],
     "evaluation_modes": [
       "knn",
@@ -87,7 +87,7 @@
       "max",
       "std",
       "median",
-      "mean_std"
+      "meanstd"
     ],
     "evaluation_modes": [
       "knn",
@@ -111,7 +111,7 @@
       "max",
       "std",
       "median",
-      "mean_std"
+      "meanstd"
     ],
     "evaluation_modes": [
       "knn",

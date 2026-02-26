@@ -44,8 +44,8 @@ def get_aggregation_progress_files(wildcards):
                 progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_std.done"
             elif wildcards.aggregation_method == "median":
                 progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_median.done"
-            elif wildcards.aggregation_method == "mean_std":
-                progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_mean_std.done"
+            elif wildcards.aggregation_method == "meanstd":
+                progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{wildcards.organ_name}/{batch_id}_meanstd.done"
             else:
                 raise ValueError(f"Unknown aggregation method: {wildcards.aggregation_method}")
             progress_files.append(progress_file)
