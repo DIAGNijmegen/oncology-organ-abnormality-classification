@@ -205,20 +205,29 @@ def evaluate(model, data_loader, device, return_attention=False):
 
 def compute_attention_statistics(attention_weights_list, masks_list):
     """
-    Compute standard deviation and entropy of attention weights.
+    Compute statistics of attention weights.
     
     Args:
         attention_weights_list: List of tensors, each [batch_size, n_patches]
         masks_list: List of tensors, each [batch_size, n_patches] (True for real patches)
     
     Returns:
-        (std_dev, entropy) - mean across all samples
+        Dictionary with statistics: std_dev, entropy, avg_n_patches, avg_mean_weight, avg_max_weight
     """
     if attention_weights_list is None or len(attention_weights_list) == 0:
-        return None, None
+        return {
+            "std_dev": None,
+            "entropy": None,
+            "avg_n_patches": None,
+            "avg_mean_weight": None,
+            "avg_max_weight": None,
+        }
     
     std_devs = []
     entropies = []
+    n_patches_list = []
+    mean_weights_list = []
+    max_weights_list = []
     
     # Process each batch
     for attention_weights_batch, masks_batch in zip(attention_weights_list, masks_list):
@@ -233,6 +242,17 @@ def compute_attention_statistics(attention_weights_list, masks_list):
             if len(sample_weights) == 0:
                 continue
             
+            # Number of patches (bag size)
+            n_patches_list.append(len(sample_weights))
+            
+            # Mean attention weight
+            mean_weight = float(np.mean(sample_weights))
+            mean_weights_list.append(mean_weight)
+            
+            # Max attention weight
+            max_weight = float(np.max(sample_weights))
+            max_weights_list.append(max_weight)
+            
             # Standard deviation
             std_dev = float(np.std(sample_weights))
             std_devs.append(std_dev)
@@ -245,12 +265,21 @@ def compute_attention_statistics(attention_weights_list, masks_list):
             entropies.append(entropy)
     
     if len(std_devs) == 0:
-        return None, None
+        return {
+            "std_dev": None,
+            "entropy": None,
+            "avg_n_patches": None,
+            "avg_mean_weight": None,
+            "avg_max_weight": None,
+        }
     
-    mean_std_dev = float(np.mean(std_devs))
-    mean_entropy = float(np.mean(entropies))
-    
-    return mean_std_dev, mean_entropy
+    return {
+        "std_dev": float(np.mean(std_devs)),
+        "entropy": float(np.mean(entropies)),
+        "avg_n_patches": float(np.mean(n_patches_list)),
+        "avg_mean_weight": float(np.mean(mean_weights_list)),
+        "avg_max_weight": float(np.mean(max_weights_list)),
+    }
 
 
 def filter_patch_features_by_subgroup(
@@ -495,6 +524,9 @@ def main(args):
                     "attention_weights": {
                         "std_dev": None,
                         "entropy": None,
+                        "avg_n_patches": None,
+                        "avg_mean_weight": None,
+                        "avg_max_weight": None,
                     },
                 }
                 continue
@@ -503,7 +535,7 @@ def main(args):
             acc, auc, attention_weights_list, masks_list = evaluate(model, loader, device, return_attention=True)
             
             # Compute attention statistics
-            std_dev, entropy = compute_attention_statistics(attention_weights_list, masks_list)
+            attention_stats = compute_attention_statistics(attention_weights_list, masks_list)
             
             # Count normal and abnormal samples
             n_normal = int(np.sum(y_split == 0))
@@ -514,10 +546,7 @@ def main(args):
                 "auc": float(auc) if auc is not None else None,
                 "n_normal": n_normal,
                 "n_abnormal": n_abnormal,
-                "attention_weights": {
-                    "std_dev": std_dev,
-                    "entropy": entropy,
-                },
+                "attention_weights": attention_stats,
             }
         
         metrics["evaluation_groups"][group_name] = group_metrics
