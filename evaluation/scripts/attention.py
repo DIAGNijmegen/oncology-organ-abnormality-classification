@@ -33,13 +33,16 @@ class AttentionMIL(nn.Module):
         
         self.classifier = nn.Linear(embedding_dim, 1)
 
-    def forward(self, patches, mask=None):
+    def forward(self, patches, mask=None, return_attention=False):
         # patches: [batch_size, n_patches, embedding_dim]
         # mask: [batch_size, n_patches] - True for real patches, False for padding
         batch_size, n_patches, embedding_dim = patches.shape
         
+        # L2 normalize embeddings before attention
+        patches_normalized = F.normalize(patches, p=2, dim=2)  # [batch_size, n_patches, embedding_dim]
+        
         # Reshape for attention computation
-        patches_flat = patches.view(-1, embedding_dim)  # [batch_size * n_patches, embedding_dim]
+        patches_flat = patches_normalized.view(-1, embedding_dim)  # [batch_size * n_patches, embedding_dim]
         
         # Compute attention weights
         A = torch.tanh(self.attention_V(patches_flat))  # [batch_size * n_patches, hidden_dim]
@@ -52,12 +55,15 @@ class AttentionMIL(nn.Module):
         
         A = torch.softmax(A, dim=1)  # [batch_size, n_patches]
         
-        # Weighted sum of patches
+        # Weighted sum of patches (using normalized patches)
         A_expanded = A.unsqueeze(-1)  # [batch_size, n_patches, 1]
-        z = torch.sum(A_expanded * patches, dim=1)  # [batch_size, embedding_dim]
+        z = torch.sum(A_expanded * patches_normalized, dim=1)  # [batch_size, embedding_dim]
         
         # Classification
         out = self.classifier(z)  # [batch_size, 1]
+        
+        if return_attention:
+            return out, A
         return out
 
 
@@ -150,21 +156,26 @@ def make_data_loaders(
     return train_loader, val_loader, test_loader
 
 
-def evaluate(model, data_loader, device):
+def evaluate(model, data_loader, device, return_attention=False):
     """Evaluate model on a data loader."""
     if data_loader is None:
-        return None, None
+        return None, None, None
     
     model.eval()
     all_logits = []
     all_true_labels = []
+    all_attention_weights = []
 
     with torch.no_grad():
         for patches_batch, masks_batch, y_batch in data_loader:
             patches_batch = patches_batch.to(device)
             masks_batch = masks_batch.to(device)
-            logits = model(patches_batch, mask=masks_batch).cpu()
-            all_logits.append(logits)
+            if return_attention:
+                logits, attention_weights = model(patches_batch, mask=masks_batch, return_attention=True)
+                all_attention_weights.append(attention_weights.cpu())
+            else:
+                logits = model(patches_batch, mask=masks_batch)
+            all_logits.append(logits.cpu())
             all_true_labels.append(y_batch)
 
     all_logits = torch.cat(all_logits, dim=0)
@@ -184,7 +195,58 @@ def evaluate(model, data_loader, device):
             average="macro",
         )
     
-    return accuracy, auc_value
+    attention_weights_tensor = None
+    if return_attention and len(all_attention_weights) > 0:
+        attention_weights_tensor = torch.cat(all_attention_weights, dim=0)
+    
+    return accuracy, auc_value, attention_weights_tensor
+
+
+def compute_attention_statistics(attention_weights, masks):
+    """
+    Compute standard deviation and entropy of attention weights.
+    
+    Args:
+        attention_weights: [n_samples, n_patches] tensor of attention weights
+        masks: [n_samples, n_patches] tensor of masks (True for real patches)
+    
+    Returns:
+        (std_dev, entropy) - mean across samples
+    """
+    if attention_weights is None:
+        return None, None
+    
+    attention_weights = attention_weights.numpy()
+    masks = masks.numpy()
+    
+    std_devs = []
+    entropies = []
+    
+    for i in range(attention_weights.shape[0]):
+        # Get attention weights for real patches only
+        sample_weights = attention_weights[i][masks[i]]
+        
+        if len(sample_weights) == 0:
+            continue
+        
+        # Standard deviation
+        std_dev = float(np.std(sample_weights))
+        std_devs.append(std_dev)
+        
+        # Entropy: -sum(p * log(p))
+        # Add small epsilon to avoid log(0)
+        epsilon = 1e-10
+        sample_weights_safe = sample_weights + epsilon
+        entropy = float(-np.sum(sample_weights_safe * np.log(sample_weights_safe)))
+        entropies.append(entropy)
+    
+    if len(std_devs) == 0:
+        return None, None
+    
+    mean_std_dev = float(np.mean(std_devs))
+    mean_entropy = float(np.mean(entropies))
+    
+    return mean_std_dev, mean_entropy
 
 
 def filter_patch_features_by_subgroup(
@@ -339,7 +401,7 @@ def main(args):
         
         # Evaluate on validation set every epoch and save best model
         if val_loader is not None:
-            val_acc, val_auc = evaluate(model, val_loader, device)
+            val_acc, val_auc, _ = evaluate(model, val_loader, device, return_attention=False)
             if val_auc is not None and val_auc > best_val_auc:
                 best_val_auc = val_auc
                 best_epoch = epoch
@@ -409,7 +471,7 @@ def main(args):
             patch_features_train_group, y_train_group, 
             patch_features_val_group, y_val_group, 
             patch_features_test_group, y_test_group, 
-            batch_size=32
+            batch_size=64
         )
         
         # Evaluate on each split
@@ -426,11 +488,28 @@ def main(args):
                     "auc": None,
                     "n_normal": 0,
                     "n_abnormal": 0,
+                    "attention_weights": {
+                        "std_dev": None,
+                        "entropy": None,
+                    },
                 }
                 continue
             
-            # Evaluate
-            acc, auc = evaluate(model, loader, device)
+            # Evaluate with attention weights
+            acc, auc, attention_weights = evaluate(model, loader, device, return_attention=True)
+            
+            # Compute attention statistics
+            # We need to collect masks to compute statistics properly
+            masks_list = []
+            if attention_weights is not None:
+                model.eval()
+                with torch.no_grad():
+                    for patches_batch, masks_batch, _ in loader:
+                        masks_list.append(masks_batch)
+                all_masks = torch.cat(masks_list, dim=0) if len(masks_list) > 0 else None
+                std_dev, entropy = compute_attention_statistics(attention_weights, all_masks)
+            else:
+                std_dev, entropy = None, None
             
             # Count normal and abnormal samples
             n_normal = int(np.sum(y_split == 0))
@@ -441,6 +520,10 @@ def main(args):
                 "auc": float(auc) if auc is not None else None,
                 "n_normal": n_normal,
                 "n_abnormal": n_abnormal,
+                "attention_weights": {
+                    "std_dev": std_dev,
+                    "entropy": entropy,
+                },
             }
         
         metrics["evaluation_groups"][group_name] = group_metrics
