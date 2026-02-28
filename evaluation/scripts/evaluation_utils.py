@@ -474,6 +474,129 @@ def validate_features_and_labels(
         raise ValueError(f"Labels must be 0 or 1, found: {unique_labels}")
 
 
+def load_amos22_scan_ids(dataset_root: str) -> set:
+    """
+    Load AMOS22 scan IDs from the amos22-list.txt file.
+    
+    Args:
+        dataset_root: Root directory of the dataset
+    
+    Returns:
+        Set of scan IDs (e.g., {'amos_0001', 'amos_0002', ...})
+    """
+    amos22_file = os.path.join(dataset_root, "LEAVS", "amos22-list.txt")
+    
+    if not os.path.exists(amos22_file):
+        raise FileNotFoundError(f"AMOS22 list file not found: {amos22_file}")
+    
+    scan_ids = set()
+    with open(amos22_file, "r") as f:
+        for line in f:
+            scan_id = line.strip()
+            if scan_id:
+                scan_ids.add(scan_id)
+    
+    return scan_ids
+
+
+def get_dataset_root_from_annotations_path(annotations_path: str) -> str:
+    """
+    Extract dataset root from annotations CSV path.
+    Assumes path format: {dataset_root}/LEAVS/amos_*_annotations.csv
+    
+    Args:
+        annotations_path: Path to annotations CSV file
+    
+    Returns:
+        Dataset root directory
+    """
+    # Remove /LEAVS/amos_*_annotations.csv to get dataset root
+    path = os.path.dirname(annotations_path)  # Remove filename
+    if path.endswith("/LEAVS"):
+        dataset_root = os.path.dirname(path)
+    else:
+        # Fallback: try to find LEAVS in path
+        parts = path.split("/LEAVS")
+        if len(parts) > 1:
+            dataset_root = parts[0]
+        else:
+            raise ValueError(f"Cannot extract dataset root from path: {annotations_path}")
+    return dataset_root
+
+
+def filter_by_scan_ids(
+    X: np.ndarray,
+    y: np.ndarray,
+    scan_ids: List[str],
+    exclude_scan_ids: set,
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """
+    Filter features, labels, and scan IDs by excluding specified scan IDs.
+    
+    Args:
+        X: Feature array
+        y: Label array
+        scan_ids: List of scan IDs corresponding to X and y
+        exclude_scan_ids: Set of scan IDs to exclude
+    
+    Returns:
+        Filtered (X_filtered, y_filtered, scan_ids_filtered)
+    """
+    if len(X) == 0:
+        return X, y, scan_ids
+    
+    if len(scan_ids) != len(X):
+        raise ValueError(f"Mismatch: {len(scan_ids)} scan_ids but {len(X)} samples")
+    
+    filtered_indices = []
+    for idx, scan_id in enumerate(scan_ids):
+        if scan_id not in exclude_scan_ids:
+            filtered_indices.append(idx)
+    
+    if len(filtered_indices) == 0:
+        return np.array([]), np.array([]), []
+    
+    filtered_indices = np.array(filtered_indices)
+    return X[filtered_indices], y[filtered_indices], [scan_ids[i] for i in filtered_indices]
+
+
+def filter_patch_features_by_scan_ids(
+    patch_features_list: List[np.ndarray],
+    y: np.ndarray,
+    scan_ids: List[str],
+    exclude_scan_ids: set,
+) -> Tuple[List[np.ndarray], np.ndarray, List[str]]:
+    """
+    Filter patch features, labels, and scan IDs by excluding specified scan IDs.
+    
+    Args:
+        patch_features_list: List of patch feature arrays
+        y: Label array
+        scan_ids: List of scan IDs corresponding to patch_features_list and y
+        exclude_scan_ids: Set of scan IDs to exclude
+    
+    Returns:
+        Filtered (patch_features_filtered, y_filtered, scan_ids_filtered)
+    """
+    if len(patch_features_list) == 0:
+        return patch_features_list, y, scan_ids
+    
+    if len(scan_ids) != len(patch_features_list):
+        raise ValueError(f"Mismatch: {len(scan_ids)} scan_ids but {len(patch_features_list)} samples")
+    
+    filtered_features = []
+    filtered_labels = []
+    filtered_scan_ids = []
+    
+    for idx, scan_id in enumerate(scan_ids):
+        if scan_id not in exclude_scan_ids:
+            filtered_features.append(patch_features_list[idx])
+            filtered_labels.append(y[idx])
+            filtered_scan_ids.append(scan_id)
+    
+    return filtered_features, np.array(filtered_labels), filtered_scan_ids
+
+
 def save_metrics(output_path: str, metrics: dict):
     """
     Save metrics to JSON file with validation.

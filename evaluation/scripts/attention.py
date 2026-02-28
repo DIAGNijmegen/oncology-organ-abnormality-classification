@@ -21,6 +21,9 @@ from .evaluation_utils import (
     load_and_validate_annotations,
     load_subgroup_annotations,
     save_metrics,
+    load_amos22_scan_ids,
+    get_dataset_root_from_annotations_path,
+    filter_patch_features_by_scan_ids,
 )
 
 
@@ -317,6 +320,199 @@ def filter_patch_features_by_subgroup(
     return filtered_features, np.array(filtered_labels)
 
 
+def run_attention_evaluation(
+    patch_features_train, y_train, train_scan_ids,
+    patch_features_val, y_val, val_scan_ids,
+    patch_features_test, y_test, test_scan_ids,
+    train_subgroups, val_subgroups, test_subgroups,
+    organ_name,
+    device,
+    checkpoint_dir=None,
+):
+    """
+    Run attention MIL evaluation on the provided data.
+    
+    Args:
+        checkpoint_dir: Directory to save checkpoint. If None, checkpoint is not saved.
+    
+    Returns:
+        Dictionary with evaluation_groups and best_model info
+    """
+    # Validate that we have features
+    if len(patch_features_train) == 0:
+        raise ValueError(f"No training samples found for organ {organ_name}. Cannot perform evaluation.")
+    
+    # Get flattened dimension from first sample (each patch is flattened to 1D)
+    embedding_dim = patch_features_train[0].shape[1]
+    
+    # Validate flattened dimension consistency across all samples
+    for patches in patch_features_train + patch_features_val + patch_features_test:
+        if patches.shape[1] != embedding_dim:
+            raise ValueError(f"Flattened dimension mismatch: expected {embedding_dim}, got {patches.shape[1]}")
+    
+    # Validate labels
+    unique_labels = set(y_train)
+    if len(unique_labels) < 2:
+        raise ValueError(f"Need at least 2 classes for evaluation, found {len(unique_labels)}: {unique_labels}")
+    if not unique_labels.issubset({0, 1}):
+        raise ValueError(f"Labels must be 0 or 1, found: {unique_labels}")
+
+    model = AttentionMIL(embedding_dim=embedding_dim, hidden_dim=128)
+    model.to(device)
+
+    train_loader, val_loader, test_loader = make_data_loaders(
+        patch_features_train, y_train, patch_features_val, y_val, 
+        patch_features_test, y_test, batch_size=64
+    )
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
+    criterion = nn.BCEWithLogitsLoss()
+
+    best_val_auc = 0.0
+    best_checkpoint_path = None
+    best_epoch = None
+    epochs_without_improvement = 0
+    
+    for epoch in range(1, 1001):
+        model.train()
+        epoch_loader = tqdm(train_loader, desc=f"Epoch {epoch}", unit="batch")
+        for patches_batch, masks_batch, y_batch in epoch_loader:
+            patches_batch = patches_batch.to(device)
+            masks_batch = masks_batch.to(device)
+            y_batch = y_batch.to(device).float()
+
+            optimizer.zero_grad()
+            logits = model(patches_batch, mask=masks_batch).squeeze(-1)  # [batch_size]
+            loss = criterion(logits, y_batch)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loader.set_postfix(loss=loss.item())
+        
+        # Evaluate on validation set every epoch and save best model
+        if val_loader is not None:
+            val_acc, val_auc, _, _ = evaluate(model, val_loader, device, return_attention=False)
+            if val_auc is not None and val_auc > best_val_auc:
+                best_val_auc = val_auc
+                best_epoch = epoch
+                epochs_without_improvement = 0
+                if checkpoint_dir is not None:
+                    os.makedirs(checkpoint_dir, exist_ok=True)
+                    best_checkpoint_path = os.path.join(checkpoint_dir, "best_model_attention.pth")
+                    torch.save(model.state_dict(), best_checkpoint_path)
+            else:
+                epochs_without_improvement += 1
+            
+            # Early stopping: stop if no improvement in last 50 epochs
+            if epochs_without_improvement >= 50:
+                print(f"Early stopping at epoch {epoch}: no improvement in validation AUC for 50 epochs")
+                break
+
+    # Load best model checkpoint if available, otherwise use final model
+    if best_checkpoint_path is not None and os.path.exists(best_checkpoint_path):
+        model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
+        print(f"Loaded best model from {best_checkpoint_path}")
+    else:
+        print("No best checkpoint found, using final model state")
+
+    metrics = {
+        "evaluation_groups": {},
+        "best_model": {
+            "checkpoint_path": best_checkpoint_path,
+            "validation_auc": float(best_val_auc) if best_epoch is not None else None,
+            "epoch": best_epoch,
+        },
+    }
+    
+    # Define evaluation groups: all, normal+diffuse, normal+focal
+    evaluation_groups = [
+        ("all", None),  # All samples
+        ("normal_and_diffuse", "diffuse"),  # Normal + diffuse abnormal
+        ("normal_and_focal", "focal"),  # Normal + focal abnormal
+    ]
+    
+    for group_name, subgroup_name in evaluation_groups:
+        group_metrics = {}
+        
+        # Filter data for this group
+        if subgroup_name is None:
+            # All samples - no filtering
+            patch_features_train_group = patch_features_train
+            y_train_group = y_train
+            patch_features_val_group = patch_features_val
+            y_val_group = y_val
+            patch_features_test_group = patch_features_test
+            y_test_group = y_test
+        else:
+            # Normal + specific subgroup abnormal
+            patch_features_train_group, y_train_group = filter_patch_features_by_subgroup(
+                patch_features_train, y_train, train_scan_ids, train_subgroups,
+                organ_name, subgroup_name
+            )
+            patch_features_val_group, y_val_group = filter_patch_features_by_subgroup(
+                patch_features_val, y_val, val_scan_ids, val_subgroups,
+                organ_name, subgroup_name
+            )
+            patch_features_test_group, y_test_group = filter_patch_features_by_subgroup(
+                patch_features_test, y_test, test_scan_ids, test_subgroups,
+                organ_name, subgroup_name
+            )
+        
+        # Create data loaders for this group
+        train_loader_group, val_loader_group, test_loader_group = make_data_loaders(
+            patch_features_train_group, y_train_group, 
+            patch_features_val_group, y_val_group, 
+            patch_features_test_group, y_test_group, 
+            batch_size=64
+        )
+        
+        # Evaluate on each split
+        splits = [
+            ("train", train_loader_group, y_train_group),
+            ("validation", val_loader_group, y_val_group),
+            ("test", test_loader_group, y_test_group),
+        ]
+        
+        for split_name, loader, y_split in splits:
+            if loader is None or len(y_split) == 0:
+                group_metrics[split_name] = {
+                    "accuracy": None,
+                    "auc": None,
+                    "n_normal": 0,
+                    "n_abnormal": 0,
+                    "attention_weights": {
+                        "std_dev": None,
+                        "entropy": None,
+                        "avg_n_patches": None,
+                        "avg_mean_weight": None,
+                        "avg_max_weight": None,
+                    },
+                }
+                continue
+            
+            # Evaluate with attention weights
+            acc, auc, attention_weights_list, masks_list = evaluate(model, loader, device, return_attention=True)
+            
+            # Compute attention statistics
+            attention_stats = compute_attention_statistics(attention_weights_list, masks_list)
+            
+            # Count normal and abnormal samples
+            n_normal = int(np.sum(y_split == 0))
+            n_abnormal = int(np.sum(y_split == 1))
+            
+            group_metrics[split_name] = {
+                "accuracy": float(acc) if acc is not None else None,
+                "auc": float(auc) if auc is not None else None,
+                "n_normal": n_normal,
+                "n_abnormal": n_abnormal,
+                "attention_weights": attention_stats,
+            }
+        
+        metrics["evaluation_groups"][group_name] = group_metrics
+
+    return metrics
+
+
 def main(args):
     fix_random_seeds(args.seed)
 
@@ -381,176 +577,50 @@ def main(args):
     except Exception as e:
         raise RuntimeError(f"Failed to load features: {e}") from e
     
-    # Validate that we have features
-    if len(patch_features_train) == 0:
-        raise ValueError(f"No training samples found for organ {args.organ_name}. Cannot perform evaluation.")
+    # Get dataset root and load AMOS22 scan IDs
+    dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
+    amos22_scan_ids = load_amos22_scan_ids(dataset_root)
     
-    # Get flattened dimension from first sample (each patch is flattened to 1D)
-    embedding_dim = patch_features_train[0].shape[1]
-    
-    # Validate flattened dimension consistency across all samples
-    for patches in patch_features_train + patch_features_val + patch_features_test:
-        if patches.shape[1] != embedding_dim:
-            raise ValueError(f"Flattened dimension mismatch: expected {embedding_dim}, got {patches.shape[1]}")
-    
-    # Validate labels
-    unique_labels = set(y_train)
-    if len(unique_labels) < 2:
-        raise ValueError(f"Need at least 2 classes for evaluation, found {len(unique_labels)}: {unique_labels}")
-    if not unique_labels.issubset({0, 1}):
-        raise ValueError(f"Labels must be 0 or 1, found: {unique_labels}")
-
-    model = AttentionMIL(embedding_dim=embedding_dim, hidden_dim=128)
-    model.to(device)
-
-    train_loader, val_loader, test_loader = make_data_loaders(
-        patch_features_train, y_train, patch_features_val, y_val, 
-        patch_features_test, y_test, batch_size=64
+    # Run evaluation on all data
+    all_metrics = run_attention_evaluation(
+        patch_features_train, y_train, train_scan_ids,
+        patch_features_val, y_val, val_scan_ids,
+        patch_features_test, y_test, test_scan_ids,
+        train_subgroups, val_subgroups, test_subgroups,
+        args.organ_name,
+        device,
+        checkpoint_dir=output_checkpoint,
     )
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-5)
-    criterion = nn.BCEWithLogitsLoss()
-
-    best_val_auc = 0.0
-    best_checkpoint_path = None
-    best_epoch = None
-    epochs_without_improvement = 0
     
-    for epoch in range(1, 1001):
-        model.train()
-        epoch_loader = tqdm(train_loader, desc=f"Epoch {epoch}", unit="batch")
-        for patches_batch, masks_batch, y_batch in epoch_loader:
-            patches_batch = patches_batch.to(device)
-            masks_batch = masks_batch.to(device)
-            y_batch = y_batch.to(device).float()
-
-            optimizer.zero_grad()
-            logits = model(patches_batch, mask=masks_batch).squeeze(-1)  # [batch_size]
-            loss = criterion(logits, y_batch)
-            loss.backward()
-            optimizer.step()
-
-            epoch_loader.set_postfix(loss=loss.item())
-        
-        # Evaluate on validation set every epoch and save best model
-        if val_loader is not None:
-            val_acc, val_auc, _, _ = evaluate(model, val_loader, device, return_attention=False)
-            if val_auc is not None and val_auc > best_val_auc:
-                best_val_auc = val_auc
-                best_epoch = epoch
-                epochs_without_improvement = 0
-                best_checkpoint_path = os.path.join(output_checkpoint, "best_model_attention.pth")
-                torch.save(model.state_dict(), best_checkpoint_path)
-            else:
-                epochs_without_improvement += 1
-            
-            # Early stopping: stop if no improvement in last 50 epochs
-            if epochs_without_improvement >= 50:
-                print(f"Early stopping at epoch {epoch}: no improvement in validation AUC for 50 epochs")
-                break
-
-    # Load best model checkpoint if available, otherwise use final model
-    if best_checkpoint_path is not None and os.path.exists(best_checkpoint_path):
-        model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
-        print(f"Loaded best model from {best_checkpoint_path}")
-    else:
-        print("No best checkpoint found, using final model state")
-
+    # Filter out AMOS22 scans and run evaluation again
+    patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered = filter_patch_features_by_scan_ids(
+        patch_features_train, y_train, train_scan_ids, amos22_scan_ids
+    )
+    patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered = filter_patch_features_by_scan_ids(
+        patch_features_val, y_val, val_scan_ids, amos22_scan_ids
+    )
+    patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered = filter_patch_features_by_scan_ids(
+        patch_features_test, y_test, test_scan_ids, amos22_scan_ids
+    )
+    
+    # Use a separate checkpoint directory for exclude_amos22
+    exclude_checkpoint_dir = output_checkpoint + "_exclude_amos22"
+    exclude_amos22_metrics = run_attention_evaluation(
+        patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered,
+        patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered,
+        patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered,
+        train_subgroups, val_subgroups, test_subgroups,
+        args.organ_name,
+        device,
+        checkpoint_dir=exclude_checkpoint_dir,
+    )
+    
+    # Structure output with two top-level objects
     metrics = {
-        "evaluation_groups": {},
-        "best_model": {
-            "checkpoint_path": best_checkpoint_path,
-            "validation_auc": float(best_val_auc) if best_epoch is not None else None,
-            "epoch": best_epoch,
-        },
+        "all_data": all_metrics,
+        "exclude_amos22": exclude_amos22_metrics,
     }
     
-    # Define evaluation groups: all, normal+diffuse, normal+focal
-    evaluation_groups = [
-        ("all", None),  # All samples
-        ("normal_and_diffuse", "diffuse"),  # Normal + diffuse abnormal
-        ("normal_and_focal", "focal"),  # Normal + focal abnormal
-    ]
-    
-    for group_name, subgroup_name in evaluation_groups:
-        group_metrics = {}
-        
-        # Filter data for this group
-        if subgroup_name is None:
-            # All samples - no filtering
-            patch_features_train_group = patch_features_train
-            y_train_group = y_train
-            patch_features_val_group = patch_features_val
-            y_val_group = y_val
-            patch_features_test_group = patch_features_test
-            y_test_group = y_test
-        else:
-            # Normal + specific subgroup abnormal
-            patch_features_train_group, y_train_group = filter_patch_features_by_subgroup(
-                patch_features_train, y_train, train_scan_ids, train_subgroups,
-                args.organ_name, subgroup_name
-            )
-            patch_features_val_group, y_val_group = filter_patch_features_by_subgroup(
-                patch_features_val, y_val, val_scan_ids, val_subgroups,
-                args.organ_name, subgroup_name
-            )
-            patch_features_test_group, y_test_group = filter_patch_features_by_subgroup(
-                patch_features_test, y_test, test_scan_ids, test_subgroups,
-                args.organ_name, subgroup_name
-            )
-        
-        # Create data loaders for this group
-        train_loader_group, val_loader_group, test_loader_group = make_data_loaders(
-            patch_features_train_group, y_train_group, 
-            patch_features_val_group, y_val_group, 
-            patch_features_test_group, y_test_group, 
-            batch_size=64
-        )
-        
-        # Evaluate on each split
-        splits = [
-            ("train", train_loader_group, y_train_group),
-            ("validation", val_loader_group, y_val_group),
-            ("test", test_loader_group, y_test_group),
-        ]
-        
-        for split_name, loader, y_split in splits:
-            if loader is None or len(y_split) == 0:
-                group_metrics[split_name] = {
-                    "accuracy": None,
-                    "auc": None,
-                    "n_normal": 0,
-                    "n_abnormal": 0,
-                    "attention_weights": {
-                        "std_dev": None,
-                        "entropy": None,
-                        "avg_n_patches": None,
-                        "avg_mean_weight": None,
-                        "avg_max_weight": None,
-                    },
-                }
-                continue
-            
-            # Evaluate with attention weights
-            acc, auc, attention_weights_list, masks_list = evaluate(model, loader, device, return_attention=True)
-            
-            # Compute attention statistics
-            attention_stats = compute_attention_statistics(attention_weights_list, masks_list)
-            
-            # Count normal and abnormal samples
-            n_normal = int(np.sum(y_split == 0))
-            n_abnormal = int(np.sum(y_split == 1))
-            
-            group_metrics[split_name] = {
-                "accuracy": float(acc) if acc is not None else None,
-                "auc": float(auc) if auc is not None else None,
-                "n_normal": n_normal,
-                "n_abnormal": n_abnormal,
-                "attention_weights": attention_stats,
-            }
-        
-        metrics["evaluation_groups"][group_name] = group_metrics
-
     # Save metrics
     save_metrics(output_metrics, metrics)
 
