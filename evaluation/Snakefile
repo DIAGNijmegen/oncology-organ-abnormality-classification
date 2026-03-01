@@ -32,6 +32,10 @@ def get_batch_ids_for_model_split_organ_evaluation(model_name, split, organ_name
 
 def get_aggregation_progress_files(wildcards):
     """Get all aggregation progress files for a given model/organ/aggregation_method combination."""
+    # For vitg (spectrevitg), features are already aggregated, so use feature progress files
+    if wildcards.aggregation_method == "vitg":
+        return get_feature_progress_files(wildcards)
+    
     progress_files = []
     for split in ["training", "validation", "test"]:
         batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, wildcards.organ_name)
