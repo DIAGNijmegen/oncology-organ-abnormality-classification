@@ -25,6 +25,9 @@ from .evaluation_utils import (
     load_amos22_scan_ids,
     get_dataset_root_from_annotations_path,
     filter_by_scan_ids,
+    get_predictions_output_path,
+    get_subgroup_info,
+    save_predictions,
 )
 
 
@@ -83,10 +86,10 @@ def make_data_loaders(
     return train_loader, val_loader, test_loader
 
 
-def evaluate(model, data_loader, device):
+def evaluate(model, data_loader, device, return_predictions=False):
     """Evaluate model on a data loader."""
     if data_loader is None:
-        return None, None
+        return (None, None) if not return_predictions else (None, None, None, None)
     
     model.eval()
     all_logits = []
@@ -108,6 +111,7 @@ def evaluate(model, data_loader, device):
     num_classes = len(np.unique(ground_truth_labels))
     if num_classes == 2:
         auc_value = roc_auc_score(ground_truth_labels, probabilities[:, 1])
+        prob_scores = probabilities[:, 1]  # Probability of class 1 (abnormal)
     else:
         auc_value = roc_auc_score(
             ground_truth_labels,
@@ -115,7 +119,10 @@ def evaluate(model, data_loader, device):
             multi_class="ovr",
             average="macro",
         )
+        prob_scores = probabilities.max(axis=1)  # Max probability across classes
     
+    if return_predictions:
+        return accuracy, auc_value, ground_truth_labels, prob_scores
     return accuracy, auc_value
 
 
@@ -209,6 +216,7 @@ def run_linear_probing_evaluation(
             "epoch": best_epoch,
         },
     }
+    predictions_dict = {"evaluation_groups": {}}
     
     # Define evaluation groups: all, normal+diffuse, normal+focal
     evaluation_groups = [
@@ -219,24 +227,28 @@ def run_linear_probing_evaluation(
     
     for group_name, subgroup_name in evaluation_groups:
         group_metrics = {}
+        group_predictions = {}
         
         # Filter data for this group
         if subgroup_name is None:
             # All samples - no filtering
             X_train_group, y_train_group = X_train, y_train
+            train_scan_ids_group = train_scan_ids
             X_val_group, y_val_group = X_val, y_val
+            val_scan_ids_group = val_scan_ids
             X_test_group, y_test_group = X_test, y_test
+            test_scan_ids_group = test_scan_ids
         else:
             # Normal + specific subgroup abnormal
-            X_train_group, y_train_group = filter_normal_and_subgroup_abnormal(
+            X_train_group, y_train_group, train_scan_ids_group = _filter_with_scan_ids(
                 X_train, y_train, train_scan_ids, train_subgroups,
                 organ_name, subgroup_name
             )
-            X_val_group, y_val_group = filter_normal_and_subgroup_abnormal(
+            X_val_group, y_val_group, val_scan_ids_group = _filter_with_scan_ids(
                 X_val, y_val, val_scan_ids, val_subgroups,
                 organ_name, subgroup_name
             )
-            X_test_group, y_test_group = filter_normal_and_subgroup_abnormal(
+            X_test_group, y_test_group, test_scan_ids_group = _filter_with_scan_ids(
                 X_test, y_test, test_scan_ids, test_subgroups,
                 organ_name, subgroup_name
             )
@@ -249,12 +261,12 @@ def run_linear_probing_evaluation(
         
         # Evaluate on each split
         splits = [
-            ("train", train_loader_group, y_train_group),
-            ("validation", val_loader_group, y_val_group),
-            ("test", test_loader_group, y_test_group),
+            ("train", train_loader_group, y_train_group, train_scan_ids_group, train_subgroups),
+            ("validation", val_loader_group, y_val_group, val_scan_ids_group, val_subgroups),
+            ("test", test_loader_group, y_test_group, test_scan_ids_group, test_subgroups),
         ]
         
-        for split_name, loader, y_split in splits:
+        for split_name, loader, y_split, scan_ids_split, subgroups_split in splits:
             if loader is None or len(y_split) == 0:
                 group_metrics[split_name] = {
                     "accuracy": None,
@@ -262,10 +274,11 @@ def run_linear_probing_evaluation(
                     "n_normal": 0,
                     "n_abnormal": 0,
                 }
+                group_predictions[split_name] = []
                 continue
             
             # Evaluate
-            acc, auc = evaluate(model, loader, device)
+            acc, auc, y_true, prob_scores = evaluate(model, loader, device, return_predictions=True)
             
             # Count normal and abnormal samples
             n_normal = int(np.sum(y_split == 0))
@@ -277,10 +290,62 @@ def run_linear_probing_evaluation(
                 "n_normal": n_normal,
                 "n_abnormal": n_abnormal,
             }
+            
+            # Collect predictions
+            split_predictions = []
+            for idx, scan_id in enumerate(scan_ids_split):
+                is_focal, is_diffuse = get_subgroup_info(scan_id, subgroups_split, organ_name)
+                split_predictions.append({
+                    "scan_id": scan_id,
+                    "ground_truth": int(y_true[idx]),
+                    "is_focal": is_focal,
+                    "is_diffuse": is_diffuse,
+                    "probability": float(prob_scores[idx]),
+                })
+            group_predictions[split_name] = split_predictions
         
         metrics["evaluation_groups"][group_name] = group_metrics
+        predictions_dict["evaluation_groups"][group_name] = group_predictions
 
-    return metrics
+    return metrics, predictions_dict
+
+
+def _filter_with_scan_ids(
+    X: np.ndarray,
+    y: np.ndarray,
+    scan_ids: list,
+    subgroup_annotations: dict,
+    organ_name: str,
+    subgroup_name: str,
+) -> tuple:
+    """
+    Filter features, labels, and scan IDs using the same logic as filter_normal_and_subgroup_abnormal.
+    Returns (X_filtered, y_filtered, scan_ids_filtered).
+    """
+    if len(X) == 0:
+        return X, y, scan_ids
+    
+    if len(scan_ids) != len(X):
+        raise ValueError(f"Mismatch: {len(scan_ids)} scan_ids but {len(X)} samples")
+    
+    filtered_indices = []
+    for idx, scan_id in enumerate(scan_ids):
+        # Include all normal samples (label=0)
+        if y[idx] == 0:
+            filtered_indices.append(idx)
+        # Include abnormal samples (label=1) with the specified subgroup
+        elif y[idx] == 1:
+            if scan_id in subgroup_annotations:
+                organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+                # Check if this abnormal sample has the specified subgroup value=1
+                if subgroup_name in organ_subgroups and organ_subgroups[subgroup_name] == 1:
+                    filtered_indices.append(idx)
+    
+    if len(filtered_indices) == 0:
+        return np.array([]), np.array([]), []
+    
+    filtered_indices = np.array(filtered_indices)
+    return X[filtered_indices], y[filtered_indices], [scan_ids[i] for i in filtered_indices]
 
 
 def main(args):
@@ -350,7 +415,7 @@ def main(args):
     amos22_scan_ids = load_amos22_scan_ids(dataset_root)
     
     # Run evaluation on all data
-    all_metrics = run_linear_probing_evaluation(
+    all_metrics, all_predictions = run_linear_probing_evaluation(
         X_train, y_train, train_scan_ids,
         X_val, y_val, val_scan_ids,
         X_test, y_test, test_scan_ids,
@@ -373,7 +438,7 @@ def main(args):
     
     # Use a separate checkpoint directory for exclude_amos22
     exclude_checkpoint_dir = output_checkpoint + "_exclude_amos22"
-    exclude_amos22_metrics = run_linear_probing_evaluation(
+    exclude_amos22_metrics, exclude_amos22_predictions = run_linear_probing_evaluation(
         X_train_filtered, y_train_filtered, train_scan_ids_filtered,
         X_val_filtered, y_val_filtered, val_scan_ids_filtered,
         X_test_filtered, y_test_filtered, test_scan_ids_filtered,
@@ -391,6 +456,14 @@ def main(args):
     
     # Save metrics
     save_metrics(output_metrics, metrics)
+    
+    # Save predictions
+    predictions = {
+        "all_data": all_predictions,
+        "exclude_amos22": exclude_amos22_predictions,
+    }
+    output_predictions = get_predictions_output_path(output_metrics)
+    save_predictions(output_predictions, predictions)
 
     return 0
 

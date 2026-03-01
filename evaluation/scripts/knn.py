@@ -24,6 +24,9 @@ from .evaluation_utils import (
     load_amos22_scan_ids,
     get_dataset_root_from_annotations_path,
     filter_by_scan_ids,
+    get_predictions_output_path,
+    get_subgroup_info,
+    save_predictions,
 )
 
 
@@ -33,13 +36,18 @@ def run_knn_evaluation(
     X_test, y_test, test_scan_ids,
     train_subgroups, val_subgroups, test_subgroups,
     organ_name,
-    k_values=[1, 3, 5, 10, 20, 30]
+    k_values=[1, 3, 5, 10, 20, 30],
+    return_predictions=False,
 ):
     """
     Run kNN evaluation on the provided data.
     
+    Args:
+        return_predictions: If True, also return predictions dictionary
+    
     Returns:
         List of results, one per k value
+        If return_predictions=True, also returns predictions dict
     """
     # Validate features and labels
     validate_features_and_labels(
@@ -53,6 +61,7 @@ def run_knn_evaluation(
     X_test_scaled = scaler.transform(X_test) if len(X_test) > 0 else X_test
     
     results = []
+    predictions_dict = {"k_values": {}} if return_predictions else None
     
     for k in k_values:
         knn = KNeighborsClassifier(n_neighbors=k)
@@ -67,38 +76,44 @@ def run_knn_evaluation(
             ("normal_and_focal", "focal"),  # Normal + focal abnormal
         ]
         
+        k_predictions = {"evaluation_groups": {}} if return_predictions else None
+        
         for group_name, subgroup_name in evaluation_groups:
             group_metrics = {}
+            group_predictions = {} if return_predictions else None
             
             # Filter data for this group
             if subgroup_name is None:
                 # All samples - no filtering
                 X_train_group, y_train_group = X_train, y_train
+                train_scan_ids_group = train_scan_ids
                 X_val_group, y_val_group = X_val, y_val
+                val_scan_ids_group = val_scan_ids
                 X_test_group, y_test_group = X_test, y_test
+                test_scan_ids_group = test_scan_ids
             else:
                 # Normal + specific subgroup abnormal
-                X_train_group, y_train_group = filter_normal_and_subgroup_abnormal(
+                X_train_group, y_train_group, train_scan_ids_group = _filter_with_scan_ids(
                     X_train, y_train, train_scan_ids, train_subgroups,
                     organ_name, subgroup_name
                 )
-                X_val_group, y_val_group = filter_normal_and_subgroup_abnormal(
+                X_val_group, y_val_group, val_scan_ids_group = _filter_with_scan_ids(
                     X_val, y_val, val_scan_ids, val_subgroups,
                     organ_name, subgroup_name
                 )
-                X_test_group, y_test_group = filter_normal_and_subgroup_abnormal(
+                X_test_group, y_test_group, test_scan_ids_group = _filter_with_scan_ids(
                     X_test, y_test, test_scan_ids, test_subgroups,
                     organ_name, subgroup_name
                 )
             
             # Evaluate on each split
             splits = [
-                ("train", X_train_group, y_train_group, X_train_scaled, X_train),
-                ("validation", X_val_group, y_val_group, X_val_scaled, X_val),
-                ("test", X_test_group, y_test_group, X_test_scaled, X_test),
+                ("train", X_train_group, y_train_group, train_scan_ids_group, X_train_scaled, X_train, train_subgroups),
+                ("validation", X_val_group, y_val_group, val_scan_ids_group, X_val_scaled, X_val, val_subgroups),
+                ("test", X_test_group, y_test_group, test_scan_ids_group, X_test_scaled, X_test, test_subgroups),
             ]
             
-            for split_name, X_split, y_split, X_split_scaled_full, X_split_full in splits:
+            for split_name, X_split, y_split, scan_ids_split, X_split_scaled_full, X_split_full, subgroups_split in splits:
                 if len(X_split) == 0:
                     group_metrics[split_name] = {
                         "accuracy": None,
@@ -106,6 +121,8 @@ def run_knn_evaluation(
                         "n_normal": 0,
                         "n_abnormal": 0,
                     }
+                    if return_predictions:
+                        group_predictions[split_name] = []
                     continue
                 
                 # Scale features: use pre-scaled if all samples, otherwise scale filtered
@@ -134,12 +151,70 @@ def run_knn_evaluation(
                     "n_normal": n_normal,
                     "n_abnormal": n_abnormal,
                 }
+                
+                # Collect predictions if requested
+                if return_predictions:
+                    split_predictions = []
+                    for idx, scan_id in enumerate(scan_ids_split):
+                        is_focal, is_diffuse = get_subgroup_info(scan_id, subgroups_split, organ_name)
+                        split_predictions.append({
+                            "scan_id": scan_id,
+                            "ground_truth": int(y_split[idx]),
+                            "is_focal": is_focal,
+                            "is_diffuse": is_diffuse,
+                            "probability": float(y_prob[idx]) if y_prob is not None else None,
+                        })
+                    group_predictions[split_name] = split_predictions
             
             result["evaluation_groups"][group_name] = group_metrics
+            if return_predictions:
+                k_predictions["evaluation_groups"][group_name] = group_predictions
         
         results.append(result)
+        if return_predictions:
+            predictions_dict["k_values"][str(k)] = k_predictions
     
+    if return_predictions:
+        return results, predictions_dict
     return results
+
+
+def _filter_with_scan_ids(
+    X: np.ndarray,
+    y: np.ndarray,
+    scan_ids: list,
+    subgroup_annotations: dict,
+    organ_name: str,
+    subgroup_name: str,
+) -> tuple:
+    """
+    Filter features, labels, and scan IDs using the same logic as filter_normal_and_subgroup_abnormal.
+    Returns (X_filtered, y_filtered, scan_ids_filtered).
+    """
+    if len(X) == 0:
+        return X, y, scan_ids
+    
+    if len(scan_ids) != len(X):
+        raise ValueError(f"Mismatch: {len(scan_ids)} scan_ids but {len(X)} samples")
+    
+    filtered_indices = []
+    for idx, scan_id in enumerate(scan_ids):
+        # Include all normal samples (label=0)
+        if y[idx] == 0:
+            filtered_indices.append(idx)
+        # Include abnormal samples (label=1) with the specified subgroup
+        elif y[idx] == 1:
+            if scan_id in subgroup_annotations:
+                organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+                # Check if this abnormal sample has the specified subgroup value=1
+                if subgroup_name in organ_subgroups and organ_subgroups[subgroup_name] == 1:
+                    filtered_indices.append(idx)
+    
+    if len(filtered_indices) == 0:
+        return np.array([]), np.array([]), []
+    
+    filtered_indices = np.array(filtered_indices)
+    return X[filtered_indices], y[filtered_indices], [scan_ids[i] for i in filtered_indices]
 
 
 def main(args):
@@ -204,12 +279,13 @@ def main(args):
     amos22_scan_ids = load_amos22_scan_ids(dataset_root)
     
     # Run evaluation on all data
-    all_results = run_knn_evaluation(
+    all_results, all_predictions = run_knn_evaluation(
         X_train, y_train, train_scan_ids,
         X_val, y_val, val_scan_ids,
         X_test, y_test, test_scan_ids,
         train_subgroups, val_subgroups, test_subgroups,
         args.organ_name,
+        return_predictions=True,
     )
     
     # Filter out AMOS22 scans and run evaluation again
@@ -223,12 +299,13 @@ def main(args):
         X_test, y_test, test_scan_ids, amos22_scan_ids
     )
     
-    exclude_amos22_results = run_knn_evaluation(
+    exclude_amos22_results, exclude_amos22_predictions = run_knn_evaluation(
         X_train_filtered, y_train_filtered, train_scan_ids_filtered,
         X_val_filtered, y_val_filtered, val_scan_ids_filtered,
         X_test_filtered, y_test_filtered, test_scan_ids_filtered,
         train_subgroups, val_subgroups, test_subgroups,
         args.organ_name,
+        return_predictions=True,
     )
     
     # Structure output with two top-level objects
@@ -239,6 +316,14 @@ def main(args):
     
     # Save results
     save_metrics(output_metrics, metrics)
+    
+    # Save predictions
+    predictions = {
+        "all_data": all_predictions,
+        "exclude_amos22": exclude_amos22_predictions,
+    }
+    output_predictions = get_predictions_output_path(output_metrics)
+    save_predictions(output_predictions, predictions)
     
     return 0
 

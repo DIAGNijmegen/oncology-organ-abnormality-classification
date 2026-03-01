@@ -619,3 +619,71 @@ def save_metrics(output_path: str, metrics: dict):
     # Verify output was created
     if not os.path.exists(output_path):
         raise RuntimeError(f"Output metrics file was not created: {output_path}")
+
+
+def get_predictions_output_path(output_path: str) -> str:
+    """
+    Get predictions output path from metrics output path.
+    Example: linear.json -> linear_predictions.json
+    """
+    base_path = output_path.replace(".json", "")
+    return f"{base_path}_predictions.json"
+
+
+def get_subgroup_info(
+    scan_id: str,
+    subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]],
+    organ_name: str,
+) -> Tuple[Optional[bool], Optional[bool]]:
+    """
+    Get focal and diffuse information for a scan ID and organ.
+    
+    Args:
+        scan_id: Scan ID
+        subgroup_annotations: Subgroup annotations dict
+        organ_name: Name of the organ
+    
+    Returns:
+        (is_focal, is_diffuse) - booleans or None if not available
+    """
+    if scan_id not in subgroup_annotations:
+        return None, None
+    
+    organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+    is_focal = bool(organ_subgroups.get("focal", 0)) if "focal" in organ_subgroups else None
+    is_diffuse = bool(organ_subgroups.get("diffuse", 0)) if "diffuse" in organ_subgroups else None
+    
+    return is_focal, is_diffuse
+
+
+def save_predictions(output_path: str, predictions: dict):
+    """
+    Save predictions to JSON file with validation.
+    
+    Args:
+        output_path: Path to save predictions JSON file
+        predictions: Dictionary with predictions structure:
+            {
+                "all_data": {
+                    "evaluation_groups": {
+                        "all": {
+                            "train": [{"scan_id": ..., "ground_truth": ..., "is_focal": ..., "is_diffuse": ..., "probability": ...}, ...],
+                            "validation": [...],
+                            "test": [...]
+                        },
+                        ...
+                    }
+                },
+                "exclude_amos22": {...}
+            }
+    """
+    import json
+    try:
+        with open(output_path, "w") as f:
+            json.dump(predictions, f, indent=2)
+    except Exception as e:
+        raise RuntimeError(f"Failed to write predictions to {output_path}: {e}") from e
+    
+    # Verify output was created
+    if not os.path.exists(output_path):
+        raise RuntimeError(f"Predictions file was not created: {output_path}")
