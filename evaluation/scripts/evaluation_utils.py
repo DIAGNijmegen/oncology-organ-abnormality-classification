@@ -18,7 +18,7 @@ def get_base_args_parser(description: Optional[str] = None, add_help: bool = Tru
     parser = argparse.ArgumentParser(description=description, add_help=add_help)
     parser.add_argument("--output-root", type=str, required=True, help="Workflow output root directory")
     parser.add_argument("--model-name", type=str, required=True, help="Feature model name")
-    parser.add_argument("--aggregation-method", type=str, required=True, choices=["mean", "max", "std", "median", "meanstd"], help="Aggregation method")
+    parser.add_argument("--aggregation-method", type=str, required=True, choices=["mean", "max", "std", "median", "meanstd", "vitg"], help="Aggregation method (use 'vitg' for spectrevitg model)")
     parser.add_argument(
         "--annotations-train-csv",
         type=str,
@@ -41,6 +41,14 @@ def get_base_args_parser(description: Optional[str] = None, add_help: bool = Tru
 
 
 def get_feature_dir(output_root: str, model_name: str, organ_name: str, split: str, aggregation_method: str) -> str:
+    """
+    Get feature directory path. For spectrevitg, returns raw feature directory
+    since features are already aggregated by the model.
+    """
+    # spectrevitg writes already-aggregated features to raw path
+    if model_name == "spectrevitg":
+        return get_raw_feature_dir(output_root, model_name, organ_name, split)
+    
     return os.path.join(
         output_root,
         model_name,

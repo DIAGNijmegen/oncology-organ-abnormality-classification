@@ -118,5 +118,24 @@
       "linear",
       "attention"
     ]
+  },
+  "spectrevitg": {
+    "description": "SPECTRE ViTG",
+    "model": {
+      "architecture": "spectrevitg",
+      "type": null
+    },
+    "datasets": [
+      {
+        "name": "LEAVS"
+      }
+    ],
+    "aggregation_methods": [
+      "vitg"
+    ],
+    "evaluation_modes": [
+      "knn",
+      "linear"
+    ]
   }
 }

@@ -25,7 +25,6 @@ from util.sliding_window import sliding_window_3d
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
-INFERENCE_BATCH_SIZE = 2
 PREPROCESS_WORKERS = 2
 
 
@@ -70,7 +69,11 @@ def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
 def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
     """
     Preprocess a 3D patch for SPECTRE model.
-    Expected input: 256x256x128 (after spacing has been applied to the crop)
+    Expected input: 128x128x64 (after spacing has been applied to the crop)
+    
+    Returns:
+        Preprocessed patch tensor with shape (1, C, H, W, D)
+        (MONAI outputs (C, H, W, D), then we add batch dim)
     """
     transform = Compose([
         Orientationd(keys=["image"], axcodes="RAS"),
@@ -96,45 +99,85 @@ def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
     return img
 
 
-def extract_features_for_organ(
+def extract_features_for_organ_grid(
     model,
     organ_crop: np.ndarray,
     window_size: tuple,
-    stride: tuple = None
-) -> tuple:
+) -> np.ndarray:
     """
-    Extract features for an organ crop using sliding windows.
+    Extract features for an organ crop using grid-based processing.
+    Extracts patches with no overlap and passes all patches through the model at once.
+    
+    Args:
+        model: SPECTRE model
+        organ_crop: 3D numpy array (Z, Y, X) - already resampled with spacing
+        window_size: (depth, height, width) of patches
     
     Returns:
-        features: List of feature vectors
-        positions: List of (z, y, x) positions
+        Aggregated feature vector (already aggregated by the model)
     """
-    if stride is None:
-        stride = tuple(s // 2 for s in window_size)  # 50% overlap
+    # Extract patches with no overlap (stride = window_size)
+    stride = window_size
     
     patches = []
     positions = []
     for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
         patches.append(patch)
         positions.append((z, y, x))
-
+    
     if not patches:
-        return np.array([]), np.array([])
-
+        return np.array([])
+    
+    # Calculate grid size based on number of patches in each dimension
+    # We need to determine how many patches fit in each dimension
+    d, h, w = organ_crop.shape
+    win_d, win_h, win_w = window_size
+    
+    # Calculate grid dimensions
+    grid_d = (d + win_d - 1) // win_d  # Number of patches in depth dimension
+    grid_h = (h + win_h - 1) // win_h  # Number of patches in height dimension
+    grid_w = (w + win_w - 1) // win_w  # Number of patches in width dimension
+    
+    # Verify that we have the expected number of patches
+    expected_patches = grid_d * grid_h * grid_w
+    if len(patches) != expected_patches:
+        # This can happen if the crop doesn't divide evenly
+        # Recalculate grid size based on actual patches
+        # We need to infer the grid from the positions
+        if len(positions) > 0:
+            z_positions = sorted(set(pos[0] for pos in positions))
+            y_positions = sorted(set(pos[1] for pos in positions))
+            x_positions = sorted(set(pos[2] for pos in positions))
+            grid_d = len(z_positions)
+            grid_h = len(y_positions)
+            grid_w = len(x_positions)
+        else:
+            grid_d = grid_h = grid_w = 1
+    
+    grid_size = (grid_d, grid_h, grid_w)
+    
+    print(f"  Grid size: {grid_size}, Total patches: {len(patches)}")
+    
+    # Preprocess all patches
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
         preprocessed_patches = list(executor.map(preprocess_patch, patches))
-
-    features = []
+    
+    # Stack all patches into a single batch
+    patch_tensors = [p.squeeze(0) for p in preprocessed_patches]  # Each is (C, H, W, D)
+    stacked_patches = torch.stack(patch_tensors, dim=0)  # (n_patches, C, H, W, D)
+    batch_tensor = stacked_patches.unsqueeze(0).cuda()  # (1, n_patches, C, H, W, D)
+    
+    # Pass all patches through the model at once with the calculated grid size
     with torch.no_grad():
-        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
-            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
-            batch_tensor = torch.cat(batch_items, dim=0).cuda()
-            output = model(batch_tensor.unsqueeze(1), grid_size=(1, 1, 1))
-            batch_features = output.detach().cpu().numpy()
-            for feature in batch_features:
-                features.append(np.expand_dims(feature, axis=0))
-
-    return np.array(features), np.array(positions)
+        output = model(batch_tensor, grid_size=grid_size)
+        # Output is already aggregated (one feature vector per organ)
+        # If output has batch dimension, squeeze it
+        if output.ndim > 1 and output.shape[0] == 1:
+            feature = output.squeeze(0).detach().cpu().numpy()
+        else:
+            feature = output.detach().cpu().numpy()
+    
+    return feature
 
 
 def is_valid_output_file(output_path: str) -> bool:
@@ -146,11 +189,10 @@ def is_valid_output_file(output_path: str) -> bool:
         return False
     try:
         with np.load(output_path, allow_pickle=True) as data:
-            required_keys = {"features", "positions", "bbox_origin", "organ_name", "is_placeholder"}
+            required_keys = {"features", "bbox_origin", "organ_name", "is_placeholder"}
             if not required_keys.issubset(set(data.files)):
                 return False
             _ = data["features"]
-            _ = data["positions"]
             _ = data["is_placeholder"]
     except Exception:
         return False
@@ -166,7 +208,7 @@ def process_scan_for_organ(
     output_path: str
 ):
     """
-    Process a single scan for a specific organ.
+    Process a single scan for a specific organ using grid-based processing.
     Returns True if features were extracted, False if placeholder was saved.
     """
     # Get organ crop
@@ -178,7 +220,6 @@ def process_scan_for_organ(
         np.savez(
             output_path,
             features=np.array([]),
-            positions=np.array([]),
             bbox_origin=None,
             organ_name=organ_name,
             is_placeholder=True
@@ -190,29 +231,27 @@ def process_scan_for_organ(
     # Apply spacing to the entire crop before extracting patches
     organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
     
-    # Extract features
-    features, positions = extract_features_for_organ(model, organ_crop, window_size)
+    # Extract features using grid-based processing
+    features = extract_features_for_organ_grid(model, organ_crop, window_size)
     
-    if len(features) == 0:
+    if features.size == 0:
         # No features extracted - save placeholder file
         print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Saving placeholder file.")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         np.savez(
             output_path,
             features=np.array([]),
-            positions=np.array([]),
             bbox_origin=bbox_origin,
             organ_name=organ_name,
             is_placeholder=True
         )
         return False
     
-    # Save features with position information
+    # Save aggregated features (already aggregated by the model)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     np.savez(
         output_path,
         features=features,
-        positions=positions,
         bbox_origin=bbox_origin,
         organ_name=organ_name,
         is_placeholder=False
@@ -232,8 +271,8 @@ def process_scan_for_all_organs(
     scan_id: str,
 ):
     """
-    Process a scan for all specified organs.
-    Saves one file per organ using the standard output path convention.
+    Process a scan for all specified organs using grid-based processing.
+    Saves one file per organ to the raw path (features are already aggregated by the model).
     """
     processed_count = 0
     for organ_name in organ_names:
@@ -334,7 +373,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SPECTRE Feature Extraction for LEAVS")
+    parser = argparse.ArgumentParser(description="SPECTRE ViTG Feature Extraction for LEAVS")
     parser.add_argument("--scan-paths-file", type=str, required=True, help="File containing scan file paths (.nii.gz), one per line")
     parser.add_argument("--seg-paths-file", type=str, required=True, help="File containing segmentation file paths (.nii.gz), one per line")
     parser.add_argument("--output-root", type=str, required=True, help="Root output directory following workflow conventions")
