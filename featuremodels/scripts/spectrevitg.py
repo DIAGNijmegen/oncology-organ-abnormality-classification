@@ -25,7 +25,7 @@ from util.sliding_window import sliding_window_3d
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
-PREPROCESS_WORKERS = 2
+PREPROCESS_WORKERS = 4
 
 
 def load_model():
@@ -177,7 +177,8 @@ def extract_features_for_organ_grid(
         else:
             feature = output.detach().cpu().numpy()
     
-    return feature
+    # Use CLS token as feature
+    return np.expand_dims(feature[0], axis=0)
 
 
 def is_valid_output_file(output_path: str) -> bool:
