@@ -4,17 +4,33 @@
 import os
 import sys
 import argparse
-from typing import Tuple
+from typing import Tuple, List
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
 import nibabel as nib
+from monai.transforms import (
+    Compose,
+    DivisiblePadd,
+    EnsureTyped,
+    Orientationd,
+    ScaleIntensityRanged,
+    ResizeWithPadOrCropd,
+    NormalizeIntensityd,
+    Spacingd,
+)
+from monai.data import MetaTensor
 
 from evaluation.scripts.attention import AttentionMIL
 from evaluation.scripts.evaluation_utils import (
     get_attention_checkpoint_output_dir,
 )
 from util.leavs_utils import get_organ_crop
+from util.sliding_window import sliding_window_3d, sliding_window_2d_slices
+
+INFERENCE_BATCH_SIZE = 2
+PREPROCESS_WORKERS = 2
 
 
 def load_foundation_model(model_name: str):
@@ -51,6 +67,231 @@ def load_foundation_model(model_name: str):
         raise ValueError(f"Unknown model name: {model_name}. Supported models: spectre, ctfm, tapct, curia, umedpt, spectrevitg")
 
 
+def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
+    """Apply spacing (0.5, 0.5, 1.0) to the entire organ crop using MONAI."""
+    scan_img = nib.load(scan_path)
+    original_affine = scan_img.affine
+    
+    transform = Spacingd(keys=["image"], pixdim=(0.5, 0.5, 1.0), mode="bilinear")
+    crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
+    crop_meta = MetaTensor(crop_tensor, affine=original_affine)
+    
+    data_dict = {"image": crop_meta}
+    transformed = transform(data_dict)
+    resampled = transformed["image"].squeeze(0).numpy()
+    
+    return resampled
+
+
+def reorient_crop_to_pl(crop: np.ndarray, scan_path: str) -> np.ndarray:
+    """Reorient crop to PL orientation."""
+    scan_img = nib.load(scan_path)
+    original_affine = scan_img.affine
+    
+    transform = Orientationd(keys=["image"], axcodes="PLI")
+    crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
+    crop_meta = MetaTensor(crop_tensor, affine=original_affine)
+    
+    data_dict = {"image": crop_meta}
+    transformed = transform(data_dict)
+    reoriented = transformed["image"].squeeze(0).numpy()
+    
+    return reoriented
+
+
+def extract_features_spectre(model, organ_crop: np.ndarray, window_size: tuple, stride: tuple = None):
+    """Extract features for SPECTRE model."""
+    if stride is None:
+        stride = tuple(s // 2 for s in window_size)
+    
+    def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
+        transform = Compose([
+            Orientationd(keys=["image"], axcodes="RAS"),
+            ScaleIntensityRanged(keys=["image"], a_min=-1000, a_max=1000, b_min=0.0, b_max=1.0, clip=True),
+            EnsureTyped(keys=["image"], dtype=torch.float32),
+        ])
+        patch_tensor = torch.from_numpy(patch).unsqueeze(0).float()
+        data_dict = {"image": patch_tensor}
+        transformed = transform(data_dict)
+        return transformed["image"].unsqueeze(0)
+    
+    patches = []
+    positions = []
+    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+        patches.append(patch)
+        positions.append((z, y, x))
+    
+    if not patches:
+        return np.array([]), np.array([]), []
+    
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+    
+    features = []
+    with torch.no_grad():
+        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.cat(batch_items, dim=0).cuda()
+            output = model(batch_tensor.unsqueeze(1), grid_size=(1, 1, 1))
+            batch_features = output.detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+    
+    return np.array(features), np.array(positions), patches
+
+
+def extract_features_ctfm(model, organ_crop: np.ndarray, window_size: tuple, stride: tuple = None):
+    """Extract features for CT-FM model."""
+    if stride is None:
+        stride = tuple(s // 2 for s in window_size)
+    
+    def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
+        transform = Compose([
+            Orientationd(keys=["image"], axcodes="SPL"),
+            ScaleIntensityRanged(keys=["image"], a_min=-1024, a_max=2048, b_min=0, b_max=1, clip=True),
+            EnsureTyped(keys=["image"]),
+        ])
+        patch_tensor = torch.from_numpy(patch).unsqueeze(0).float()
+        data_dict = {"image": patch_tensor}
+        transformed = transform(data_dict)
+        return transformed["image"].unsqueeze(0)
+    
+    patches = []
+    positions = []
+    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+        patches.append(patch)
+        positions.append((z, y, x))
+    
+    if not patches:
+        return np.array([]), np.array([]), []
+    
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+    
+    features = []
+    with torch.no_grad():
+        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.cat(batch_items, dim=0).cuda()
+            output = model(batch_tensor)
+            batch_features = output[-1].detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+    
+    return np.array(features), np.array(positions), patches
+
+
+def extract_features_tapct(model, organ_crop: np.ndarray, window_size: tuple, stride: tuple = None):
+    """Extract features for TAP-CT model."""
+    if stride is None:
+        stride = tuple(s // 2 for s in window_size)
+    
+    def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
+        transform = Compose([
+            ScaleIntensityRanged(keys=["image"], a_min=-1008, a_max=822, b_min=-1008, b_max=822, clip=True),
+            NormalizeIntensityd(keys=["image"], subtrahend=-86.8086, divisor=322.6347),
+            ResizeWithPadOrCropd(keys=["image"], spatial_size=(224, 224, -1)),
+            DivisiblePadd(keys=["image"], k=(1, 1, 4)),
+            EnsureTyped(keys=["image"], dtype=torch.float32),
+        ])
+        patch_tensor = torch.from_numpy(patch).unsqueeze(0).float()
+        data_dict = {"image": patch_tensor}
+        transformed = transform(data_dict)
+        img = transformed["image"]
+        img = img.permute(0, 3, 1, 2)
+        return img.unsqueeze(0)
+    
+    patches = []
+    positions = []
+    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+        patches.append(patch)
+        positions.append((z, y, x))
+    
+    if not patches:
+        return np.array([]), np.array([]), []
+    
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+    
+    features = []
+    with torch.no_grad():
+        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.cat(batch_items, dim=0).cuda()
+            output = model(batch_tensor)
+            batch_features = output["pooler_output"].detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+    
+    return np.array(features), np.array(positions), patches
+
+
+def extract_features_curia(model, processor, organ_crop: np.ndarray, window_size: tuple, stride: int = 1):
+    """Extract features for Curia model."""
+    def preprocess_slice(slice_2d: np.ndarray, processor) -> dict:
+        img_clipped = np.clip(slice_2d, -1000, 3000)
+        img_normalized = (img_clipped + 1000) / 4000
+        return processor(img_normalized)
+    
+    features = []
+    positions = []
+    patches = []
+    
+    for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
+        model_input = preprocess_slice(slice_2d, processor)
+        patches.append(slice_2d)
+        
+        with torch.no_grad():
+            model_input_gpu = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in model_input.items()}
+            output = model(**model_input_gpu)
+            feature = output["pooler_output"].detach().cpu().numpy()
+        
+        features.append(feature)
+        positions.append(slice_idx)
+    
+    return np.array(features), np.array(positions), patches
+
+
+def extract_features_umedpt(model, organ_crop: np.ndarray, window_size: tuple, stride: int = 1):
+    """Extract features for UMedPT model."""
+    def preprocess_slice(slice_2d: np.ndarray) -> torch.Tensor:
+        transform = Compose([
+            ScaleIntensityRanged(keys=["image"], a_min=-1000, a_max=1000, b_min=0.0, b_max=1.0, clip=True),
+            EnsureTyped(keys=["image"], dtype=torch.float32),
+        ])
+        slice_tensor = torch.from_numpy(slice_2d).unsqueeze(0).float()
+        data_dict = {"image": slice_tensor}
+        transformed = transform(data_dict)
+        return transformed["image"]
+    
+    slices = []
+    positions = []
+    patches = []
+    for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
+        slices.append(slice_2d)
+        positions.append(slice_idx)
+        patches.append(slice_2d)
+    
+    if not slices:
+        return np.array([]), np.array([]), []
+    
+    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
+        preprocessed_slices = list(executor.map(preprocess_slice, slices))
+    
+    features = []
+    with torch.inference_mode():
+        for batch_start in range(0, len(preprocessed_slices), INFERENCE_BATCH_SIZE):
+            batch_items = preprocessed_slices[batch_start:batch_start + INFERENCE_BATCH_SIZE]
+            batch_tensor = torch.stack(batch_items, dim=0)
+            model_input = batch_tensor.expand(batch_tensor.shape[0], 3, 224, 224).cuda()
+            feature_pyramid = model["encoder"](model_input.to(model.device))
+            batch_features = model["squeezer"](feature_pyramid)[1].detach().cpu().numpy()
+            for feature in batch_features:
+                features.append(np.expand_dims(feature, axis=0))
+    
+    return np.array(features), np.array(positions), patches
+
+
 def extract_features_for_organ_with_positions(
     model,
     processor,
@@ -58,9 +299,9 @@ def extract_features_for_organ_with_positions(
     seg_path: str,
     organ_name: str,
     model_name: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[int, int, int]]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[int, int, int], List[np.ndarray]]:
     """
-    Extract features from a scan for a specific organ, returning features, positions, and organ crop.
+    Extract features from a scan for a specific organ, returning features, positions, organ crop, and patches.
     
     Args:
         model: Foundation model
@@ -71,11 +312,12 @@ def extract_features_for_organ_with_positions(
         model_name: Name of the model (to determine window size and extraction method)
     
     Returns:
-        (features, positions, organ_crop, bbox_origin)
+        (features, positions, organ_crop, bbox_origin, patches)
         - features: (n_patches, feature_dim) array
-        - positions: (n_patches, 3) array of (z, y, x) positions
+        - positions: (n_patches, 3) or (n_patches,) array of positions
         - organ_crop: 3D numpy array of the organ crop
         - bbox_origin: (z, y, x) origin of the bounding box
+        - patches: List of patch arrays
     """
     model_name_lower = model_name.lower()
     
@@ -102,25 +344,18 @@ def extract_features_for_organ_with_positions(
     
     # Extract features based on model type
     if model_name_lower == "spectre":
-        from featuremodels.scripts.spectre import extract_features_for_organ, apply_spacing_to_crop
         organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
-        features, positions = extract_features_for_organ(model, organ_crop, window_size)
+        features, positions, patches = extract_features_spectre(model, organ_crop, window_size)
     elif model_name_lower == "ctfm":
-        from featuremodels.scripts.ctfm import extract_features_for_organ
-        features, positions = extract_features_for_organ(model, organ_crop, window_size)
+        features, positions, patches = extract_features_ctfm(model, organ_crop, window_size)
     elif model_name_lower == "tapct":
-        from featuremodels.scripts.tapct import extract_features_for_organ
-        features, positions = extract_features_for_organ(model, organ_crop, window_size)
+        features, positions, patches = extract_features_tapct(model, organ_crop, window_size)
     elif model_name_lower == "curia":
-        from featuremodels.scripts.curia import extract_features_for_organ, reorient_crop_to_pl
         organ_crop = reorient_crop_to_pl(organ_crop, scan_path)
-        features, positions = extract_features_for_organ(model, processor, organ_crop, window_size)
+        features, positions, patches = extract_features_curia(model, processor, organ_crop, window_size)
     elif model_name_lower == "umedpt":
-        from featuremodels.scripts.umedpt import extract_features_for_organ
-        features, positions = extract_features_for_organ(model, organ_crop, window_size)
+        features, positions, patches = extract_features_umedpt(model, organ_crop, window_size)
     elif model_name_lower == "spectrevitg":
-        from featuremodels.scripts.spectrevitg import extract_features_for_organ_grid, apply_spacing_to_crop
-        organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
         raise NotImplementedError("spectrevitg uses grid-based processing without positions. Use a different model for attention visualization.")
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -139,7 +374,7 @@ def extract_features_for_organ_with_positions(
             flattened_patches.append(flattened_patch)
         features = np.array(flattened_patches)
     
-    return features, positions, organ_crop, bbox_origin
+    return features, positions, organ_crop, bbox_origin, patches
 
 
 def create_attention_volume(
@@ -256,7 +491,7 @@ def main(args):
     
     # Extract features
     print(f"Extracting features for organ: {args.organ_name}...")
-    features, positions, organ_crop, bbox_origin = extract_features_for_organ_with_positions(
+    features, positions, organ_crop, bbox_origin, patches = extract_features_for_organ_with_positions(
         foundation_model,
         processor,
         scan_path,
@@ -307,13 +542,64 @@ def main(args):
     print(f"Prediction probability: {probability:.4f}")
     print(f"Attention weights - min: {attention_weights.min():.4f}, max: {attention_weights.max():.4f}, mean: {attention_weights.mean():.4f}")
     
+    # Load original scan to get affine for patches and final outputs
+    scan_img = nib.load(scan_path)
+    crop_affine = scan_img.affine.copy()
+    bbox_origin_xyz = np.array([bbox_origin[2], bbox_origin[1], bbox_origin[0]])
+    crop_affine[:3, 3] += np.dot(crop_affine[:3, :3], bbox_origin_xyz)
+    
+    # Create output directory
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Save individual patches with attention weights
+    patches_dir = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_patches")
+    os.makedirs(patches_dir, exist_ok=True)
+    print(f"Saving individual patches to: {patches_dir}")
+    
+    for i, (patch, pos, attn_weight) in enumerate(zip(patches, positions, attention_weights)):
+        # Format attention weight for filename (6 decimal places)
+        attn_str = f"{attn_weight:.6f}".replace(".", "p")
+        
+        # Handle 2D vs 3D positions
+        if len(pos) == 1:
+            # 2D model (curia, umedpt) - pos is slice index
+            pos_str = f"slice_{pos[0]:04d}"
+        else:
+            # 3D model - pos is (z, y, x)
+            pos_str = f"z{pos[0]:04d}_y{pos[1]:04d}_x{pos[2]:04d}"
+        
+        patch_filename = f"patch_{i:04d}_{pos_str}_attn{attn_str}.nii.gz"
+        patch_path = os.path.join(patches_dir, patch_filename)
+        
+        # Create patch affine (translate to patch position)
+        patch_affine = crop_affine.copy()
+        if len(pos) == 1:
+            # 2D: translate along z-axis
+            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([0, 0, pos[0]]))
+        else:
+            # 3D: translate to patch position
+            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([pos[2], pos[1], pos[0]]))
+        
+        # Save patch
+        if len(patch.shape) == 2:
+            # 2D patch - add singleton dimension for z
+            patch_3d = patch[np.newaxis, :, :]
+        else:
+            patch_3d = patch
+        
+        patch_nifti = nib.Nifti1Image(patch_3d.astype(np.float32), patch_affine, scan_img.header)
+        nib.save(patch_nifti, patch_path)
+    
+    print(f"Saved {len(patches)} patches")
+    
     # Get window size for attention mapping
     window_sizes = {
         "spectre": (128, 128, 64),
         "ctfm": (128, 128, 48),
-        "tapct": (96, 96, 96),
-        "curia": (512, 512),
-        "umedpt": (512, 512),
+        "tapct": (224, 224, 12),
+        "curia": (256, 256),
+        "umedpt": (224, 224),
         "spectrevitg": (128, 128, 64),
     }
     window_size = window_sizes.get(args.model_name.lower(), (128, 128, 64))
@@ -327,12 +613,12 @@ def main(args):
         window_size,
     )
     
-    # Load original scan to get affine and header for saving
-    scan_img = nib.load(scan_path)
-    
     # Create output directory
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Load original scan to get affine and header for saving
+    scan_img = nib.load(scan_path)
     
     # Save organ crop
     crop_output_path = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_crop.nii.gz")
@@ -360,6 +646,7 @@ def main(args):
     print(f"\nOutput files:")
     print(f"  - Organ crop: {crop_output_path}")
     print(f"  - Attention map: {attention_output_path}")
+    print(f"  - Individual patches: {patches_dir} ({len(patches)} patches)")
     print(f"\nPrediction probability: {probability:.4f}")
 
 
