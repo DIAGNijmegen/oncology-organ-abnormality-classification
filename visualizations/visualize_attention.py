@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import torch
 import nibabel as nib
+from tqdm import tqdm
 from monai.transforms import (
     Compose,
     DivisiblePadd,
@@ -117,19 +118,22 @@ def extract_features_spectre(model, organ_crop: np.ndarray, window_size: tuple, 
     
     patches = []
     positions = []
-    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+    print("Extracting patches...")
+    for patch, (z, y, x) in tqdm(sliding_window_3d(organ_crop, window_size, stride), desc="Extracting patches"):
         patches.append(patch)
         positions.append((z, y, x))
     
     if not patches:
         return np.array([]), np.array([]), []
     
+    print(f"Preprocessing {len(patches)} patches...")
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
-        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+        preprocessed_patches = list(tqdm(executor.map(preprocess_patch, patches), total=len(patches), desc="Preprocessing"))
     
     features = []
+    num_batches = (len(preprocessed_patches) + INFERENCE_BATCH_SIZE - 1) // INFERENCE_BATCH_SIZE
     with torch.no_grad():
-        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+        for batch_start in tqdm(range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE), desc="Extracting features", total=num_batches):
             batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
             batch_tensor = torch.cat(batch_items, dim=0).cuda()
             output = model(batch_tensor.unsqueeze(1), grid_size=(1, 1, 1))
@@ -158,19 +162,22 @@ def extract_features_ctfm(model, organ_crop: np.ndarray, window_size: tuple, str
     
     patches = []
     positions = []
-    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+    print("Extracting patches...")
+    for patch, (z, y, x) in tqdm(sliding_window_3d(organ_crop, window_size, stride), desc="Extracting patches"):
         patches.append(patch)
         positions.append((z, y, x))
     
     if not patches:
         return np.array([]), np.array([]), []
     
+    print(f"Preprocessing {len(patches)} patches...")
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
-        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+        preprocessed_patches = list(tqdm(executor.map(preprocess_patch, patches), total=len(patches), desc="Preprocessing"))
     
     features = []
+    num_batches = (len(preprocessed_patches) + INFERENCE_BATCH_SIZE - 1) // INFERENCE_BATCH_SIZE
     with torch.no_grad():
-        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+        for batch_start in tqdm(range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE), desc="Extracting features", total=num_batches):
             batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
             batch_tensor = torch.cat(batch_items, dim=0).cuda()
             output = model(batch_tensor)
@@ -203,19 +210,22 @@ def extract_features_tapct(model, organ_crop: np.ndarray, window_size: tuple, st
     
     patches = []
     positions = []
-    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
+    print("Extracting patches...")
+    for patch, (z, y, x) in tqdm(sliding_window_3d(organ_crop, window_size, stride), desc="Extracting patches"):
         patches.append(patch)
         positions.append((z, y, x))
     
     if not patches:
         return np.array([]), np.array([]), []
     
+    print(f"Preprocessing {len(patches)} patches...")
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
-        preprocessed_patches = list(executor.map(preprocess_patch, patches))
+        preprocessed_patches = list(tqdm(executor.map(preprocess_patch, patches), total=len(patches), desc="Preprocessing"))
     
     features = []
+    num_batches = (len(preprocessed_patches) + INFERENCE_BATCH_SIZE - 1) // INFERENCE_BATCH_SIZE
     with torch.no_grad():
-        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
+        for batch_start in tqdm(range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE), desc="Extracting features", total=num_batches):
             batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
             batch_tensor = torch.cat(batch_items, dim=0).cuda()
             output = model(batch_tensor)
@@ -237,7 +247,10 @@ def extract_features_curia(model, processor, organ_crop: np.ndarray, window_size
     positions = []
     patches = []
     
-    for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
+    # Count slices first for progress bar
+    slice_list = list(sliding_window_2d_slices(organ_crop, window_size, stride, axis=0))
+    
+    for slice_2d, slice_idx in tqdm(slice_list, desc="Extracting features"):
         model_input = preprocess_slice(slice_2d, processor)
         patches.append(slice_2d)
         
@@ -267,7 +280,8 @@ def extract_features_umedpt(model, organ_crop: np.ndarray, window_size: tuple, s
     slices = []
     positions = []
     patches = []
-    for slice_2d, slice_idx in sliding_window_2d_slices(organ_crop, window_size, stride, axis=0):
+    print("Extracting slices...")
+    for slice_2d, slice_idx in tqdm(sliding_window_2d_slices(organ_crop, window_size, stride, axis=0), desc="Extracting slices"):
         slices.append(slice_2d)
         positions.append(slice_idx)
         patches.append(slice_2d)
@@ -275,12 +289,14 @@ def extract_features_umedpt(model, organ_crop: np.ndarray, window_size: tuple, s
     if not slices:
         return np.array([]), np.array([]), []
     
+    print(f"Preprocessing {len(slices)} slices...")
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
-        preprocessed_slices = list(executor.map(preprocess_slice, slices))
+        preprocessed_slices = list(tqdm(executor.map(preprocess_slice, slices), total=len(slices), desc="Preprocessing"))
     
     features = []
+    num_batches = (len(preprocessed_slices) + INFERENCE_BATCH_SIZE - 1) // INFERENCE_BATCH_SIZE
     with torch.inference_mode():
-        for batch_start in range(0, len(preprocessed_slices), INFERENCE_BATCH_SIZE):
+        for batch_start in tqdm(range(0, len(preprocessed_slices), INFERENCE_BATCH_SIZE), desc="Extracting features", total=num_batches):
             batch_items = preprocessed_slices[batch_start:batch_start + INFERENCE_BATCH_SIZE]
             batch_tensor = torch.stack(batch_items, dim=0)
             model_input = batch_tensor.expand(batch_tensor.shape[0], 3, 224, 224).cuda()
