@@ -423,16 +423,37 @@ def create_attention_volume(
         window_z, window_y, window_x = window_size
     
     # Map attention weights to spatial locations
-    for i, (z, y, x) in enumerate(positions):
+    for i, pos in enumerate(positions):
         weight = attention_weights[i]
         
-        # Ensure positions are within bounds
-        z_start = max(0, int(z))
-        z_end = min(organ_crop_shape[0], int(z) + window_z)
-        y_start = max(0, int(y))
-        y_end = min(organ_crop_shape[1], int(y) + window_y)
-        x_start = max(0, int(x))
-        x_end = min(organ_crop_shape[2], int(x) + window_x)
+        # Handle 2D vs 3D positions
+        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
+            # 2D model (curia, umedpt) - pos is slice index (scalar)
+            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
+            z = pos_val
+            y = 0  # Center in y
+            x = 0  # Center in x
+            # For 2D models, use the full y and x dimensions
+            z_start = max(0, int(z))
+            z_end = min(organ_crop_shape[0], int(z) + window_z)
+            y_start = 0
+            y_end = organ_crop_shape[1]
+            x_start = 0
+            x_end = organ_crop_shape[2]
+        else:
+            # 3D model - pos is (z, y, x) tuple or array
+            if isinstance(pos, (tuple, list)):
+                z, y, x = int(pos[0]), int(pos[1]), int(pos[2])
+            else:
+                z, y, x = int(pos[0]), int(pos[1]), int(pos[2])
+            
+            # Ensure positions are within bounds
+            z_start = max(0, int(z))
+            z_end = min(organ_crop_shape[0], int(z) + window_z)
+            y_start = max(0, int(y))
+            y_end = min(organ_crop_shape[1], int(y) + window_y)
+            x_start = max(0, int(x))
+            x_end = min(organ_crop_shape[2], int(x) + window_x)
         
         # Use max pooling for overlapping patches (show maximum attention)
         patch_region = attention_volume[z_start:z_end, y_start:y_end, x_start:x_end]
@@ -578,24 +599,37 @@ def main(args):
         attn_str = f"{attn_weight:.6f}".replace(".", "p")
         
         # Handle 2D vs 3D positions
-        if len(pos) == 1:
-            # 2D model (curia, umedpt) - pos is slice index
-            pos_str = f"slice_{pos[0]:04d}"
+        # For 2D models (curia, umedpt), pos is a scalar (slice index)
+        # For 3D models (spectre, ctfm, tapct), pos is a tuple/array (z, y, x)
+        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
+            # 2D model (curia, umedpt) - pos is slice index (scalar)
+            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
+            pos_str = f"slice_{pos_val:04d}"
         else:
-            # 3D model - pos is (z, y, x)
-            pos_str = f"z{pos[0]:04d}_y{pos[1]:04d}_x{pos[2]:04d}"
+            # 3D model - pos is (z, y, x) tuple or array
+            if isinstance(pos, (tuple, list)):
+                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+            else:
+                # numpy array
+                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+            pos_str = f"z{pos_z:04d}_y{pos_y:04d}_x{pos_x:04d}"
         
         patch_filename = f"patch_{i:04d}_{pos_str}_attn{attn_str}.nii.gz"
         patch_path = os.path.join(patches_dir, patch_filename)
         
         # Create patch affine (translate to patch position)
         patch_affine = crop_affine.copy()
-        if len(pos) == 1:
+        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
             # 2D: translate along z-axis
-            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([0, 0, pos[0]]))
+            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
+            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([0, 0, pos_val]))
         else:
             # 3D: translate to patch position
-            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([pos[2], pos[1], pos[0]]))
+            if isinstance(pos, (tuple, list)):
+                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+            else:
+                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([pos_x, pos_y, pos_z]))
         
         # Save patch
         if len(patch.shape) == 2:
