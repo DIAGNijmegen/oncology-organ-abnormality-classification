@@ -579,11 +579,30 @@ def main(args):
     print(f"Prediction probability: {probability:.4f}")
     print(f"Attention weights - min: {attention_weights.min():.4f}, max: {attention_weights.max():.4f}, mean: {attention_weights.mean():.4f}")
     
-    # Load original scan to get affine for patches and final outputs
+    # Load original scan to get spacing information
     scan_img = nib.load(scan_path)
-    crop_affine = scan_img.affine.copy()
-    bbox_origin_xyz = np.array([bbox_origin[2], bbox_origin[1], bbox_origin[0]])
-    crop_affine[:3, 3] += np.dot(crop_affine[:3, :3], bbox_origin_xyz)
+    original_affine = scan_img.affine
+    original_header = scan_img.header
+    
+    # Get spacing from header (pixdim)
+    original_spacing = original_header.get_zooms()[:3]  # (x, y, z) spacing
+    
+    # Determine if crop was resampled (SPECTRE applies spacing transform)
+    model_name_lower = args.model_name.lower()
+    if model_name_lower == "spectre":
+        # SPECTRE resamples to (0.5, 0.5, 1.0) spacing
+        crop_spacing = (0.5, 0.5, 1.0)  # (x, y, z)
+    else:
+        # Other models use original spacing
+        crop_spacing = original_spacing
+    
+    # Create affine for crop that preserves spacing correctly
+    # Use a simple diagonal affine with proper spacing
+    crop_affine = np.eye(4)
+    crop_affine[0, 0] = crop_spacing[0]  # x spacing
+    crop_affine[1, 1] = crop_spacing[1]  # y spacing
+    crop_affine[2, 2] = crop_spacing[2]  # z spacing
+    # Set origin to (0, 0, 0) - positioning doesn't matter for visualization
     
     # Create output directory
     output_dir = args.output_dir
@@ -617,19 +636,13 @@ def main(args):
         patch_filename = f"patch_{i:04d}_{pos_str}_attn{attn_str}.nii.gz"
         patch_path = os.path.join(patches_dir, patch_filename)
         
-        # Create patch affine (translate to patch position)
-        patch_affine = crop_affine.copy()
-        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
-            # 2D: translate along z-axis
-            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
-            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([0, 0, pos_val]))
-        else:
-            # 3D: translate to patch position
-            if isinstance(pos, (tuple, list)):
-                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
-            else:
-                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
-            patch_affine[:3, 3] += np.dot(patch_affine[:3, :3], np.array([pos_x, pos_y, pos_z]))
+        # Create patch affine with correct spacing
+        # Use the same spacing as the crop
+        patch_affine = np.eye(4)
+        patch_affine[0, 0] = crop_spacing[0]
+        patch_affine[1, 1] = crop_spacing[1]
+        patch_affine[2, 2] = crop_spacing[2]
+        # Origin at (0, 0, 0) - patches don't need to stack correctly
         
         # Save patch
         if len(patch.shape) == 2:
@@ -638,7 +651,11 @@ def main(args):
         else:
             patch_3d = patch
         
-        patch_nifti = nib.Nifti1Image(patch_3d.astype(np.float32), patch_affine, scan_img.header)
+        # Create a simple header for patches
+        patch_header = original_header.copy()
+        patch_header.set_zooms((crop_spacing[0], crop_spacing[1], crop_spacing[2]) + original_header.get_zooms()[3:])
+        
+        patch_nifti = nib.Nifti1Image(patch_3d.astype(np.float32), patch_affine, patch_header)
         nib.save(patch_nifti, patch_path)
     
     print(f"Saved {len(patches)} patches")
@@ -663,33 +680,22 @@ def main(args):
         window_size,
     )
     
-    # Create output directory
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Load original scan to get affine and header for saving
-    scan_img = nib.load(scan_path)
-    
     # Save organ crop
     crop_output_path = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_crop.nii.gz")
     print(f"Saving organ crop to: {crop_output_path}")
     
-    # Create Nifti image for crop
-    # We need to adjust the affine to account for bbox_origin
-    crop_affine = scan_img.affine.copy()
-    # Translate affine to account for bbox origin
-    # bbox_origin is (z, y, x) but affine uses (x, y, z)
-    bbox_origin_xyz = np.array([bbox_origin[2], bbox_origin[1], bbox_origin[0]])
-    crop_affine[:3, 3] += np.dot(crop_affine[:3, :3], bbox_origin_xyz)
+    # Create header with correct spacing for crop
+    crop_header = original_header.copy()
+    crop_header.set_zooms((crop_spacing[0], crop_spacing[1], crop_spacing[2]) + original_header.get_zooms()[3:])
     
-    crop_nifti = nib.Nifti1Image(organ_crop.astype(np.float32), crop_affine, scan_img.header)
+    crop_nifti = nib.Nifti1Image(organ_crop.astype(np.float32), crop_affine, crop_header)
     nib.save(crop_nifti, crop_output_path)
     
-    # Save attention map
+    # Save attention map (use same affine and header as crop so they align perfectly)
     attention_output_path = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_attention.nii.gz")
     print(f"Saving attention map to: {attention_output_path}")
     
-    attention_nifti = nib.Nifti1Image(attention_volume.astype(np.float32), crop_affine, scan_img.header)
+    attention_nifti = nib.Nifti1Image(attention_volume.astype(np.float32), crop_affine, crop_header)
     nib.save(attention_nifti, attention_output_path)
     
     print("Done!")
