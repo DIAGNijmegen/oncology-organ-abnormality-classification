@@ -83,9 +83,9 @@ def extract_features_for_organ_with_positions(
     window_sizes = {
         "spectre": (128, 128, 64),
         "ctfm": (128, 128, 48),
-        "tapct": (96, 96, 96),
-        "curia": (512, 512),  # 2D
-        "umedpt": (512, 512),  # 2D
+        "tapct": (224, 224, 12),
+        "curia": (256, 256),  # 2D
+        "umedpt": (224, 224),  # 2D
         "spectrevitg": (128, 128, 64),
     }
     
