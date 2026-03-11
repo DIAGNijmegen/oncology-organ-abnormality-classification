@@ -609,8 +609,17 @@ def filter_patch_features_by_scan_ids(
 def save_metrics(output_path: str, metrics: dict):
     """
     Save metrics to JSON file with validation.
+    Creates the output directory if it doesn't exist.
     """
     import json
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            raise OSError(f"Cannot create output directory {output_dir}: {e}")
+    
     try:
         with open(output_path, "w") as f:
             json.dump(metrics, f, indent=2)
@@ -660,6 +669,7 @@ def get_subgroup_info(
 def save_predictions(output_path: str, predictions: dict):
     """
     Save predictions to JSON file with validation.
+    Creates the output directory if it doesn't exist.
     
     Args:
         output_path: Path to save predictions JSON file
@@ -679,6 +689,14 @@ def save_predictions(output_path: str, predictions: dict):
             }
     """
     import json
+    # Ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            raise OSError(f"Cannot create output directory {output_dir}: {e}")
+    
     try:
         with open(output_path, "w") as f:
             json.dump(predictions, f, indent=2)
