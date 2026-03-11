@@ -27,6 +27,11 @@ from .evaluation_utils import (
     get_predictions_output_path,
     get_subgroup_info,
     save_predictions,
+    load_raw_features_and_labels_all_organs,
+    get_all_organs_attention_metrics_output_path,
+    get_all_organs_attention_checkpoint_output_dir,
+    filter_patch_features_all_organs_with_scan_ids,
+    get_subgroup_info_all_organs,
 )
 
 
@@ -335,6 +340,7 @@ def run_attention_evaluation(
     organ_name,
     device,
     checkpoint_dir=None,
+    is_all_organs_mode=False,
 ):
     """
     Run attention MIL evaluation on the provided data.
@@ -457,18 +463,30 @@ def run_attention_evaluation(
             test_scan_ids_group = test_scan_ids
         else:
             # Normal + specific subgroup abnormal
-            patch_features_train_group, y_train_group, train_scan_ids_group = _filter_patch_features_with_scan_ids(
-                patch_features_train, y_train, train_scan_ids, train_subgroups,
-                organ_name, subgroup_name
-            )
-            patch_features_val_group, y_val_group, val_scan_ids_group = _filter_patch_features_with_scan_ids(
-                patch_features_val, y_val, val_scan_ids, val_subgroups,
-                organ_name, subgroup_name
-            )
-            patch_features_test_group, y_test_group, test_scan_ids_group = _filter_patch_features_with_scan_ids(
-                patch_features_test, y_test, test_scan_ids, test_subgroups,
-                organ_name, subgroup_name
-            )
+            if is_all_organs_mode:
+                # For 'all' mode, scan_ids are actually (scan_id, organ_name) tuples
+                patch_features_train_group, y_train_group, train_scan_ids_group = filter_patch_features_all_organs_with_scan_ids(
+                    patch_features_train, y_train, train_scan_ids, train_subgroups, subgroup_name
+                )
+                patch_features_val_group, y_val_group, val_scan_ids_group = filter_patch_features_all_organs_with_scan_ids(
+                    patch_features_val, y_val, val_scan_ids, val_subgroups, subgroup_name
+                )
+                patch_features_test_group, y_test_group, test_scan_ids_group = filter_patch_features_all_organs_with_scan_ids(
+                    patch_features_test, y_test, test_scan_ids, test_subgroups, subgroup_name
+                )
+            else:
+                patch_features_train_group, y_train_group, train_scan_ids_group = _filter_patch_features_with_scan_ids(
+                    patch_features_train, y_train, train_scan_ids, train_subgroups,
+                    organ_name, subgroup_name
+                )
+                patch_features_val_group, y_val_group, val_scan_ids_group = _filter_patch_features_with_scan_ids(
+                    patch_features_val, y_val, val_scan_ids, val_subgroups,
+                    organ_name, subgroup_name
+                )
+                patch_features_test_group, y_test_group, test_scan_ids_group = _filter_patch_features_with_scan_ids(
+                    patch_features_test, y_test, test_scan_ids, test_subgroups,
+                    organ_name, subgroup_name
+                )
         
         # Create data loaders for this group
         train_loader_group, val_loader_group, test_loader_group = make_data_loaders(
@@ -525,15 +543,29 @@ def run_attention_evaluation(
             
             # Collect predictions
             split_predictions = []
-            for idx, scan_id in enumerate(scan_ids_split):
-                is_focal, is_diffuse = get_subgroup_info(scan_id, subgroups_split, organ_name)
-                split_predictions.append({
-                    "scan_id": scan_id,
-                    "ground_truth": int(y_true[idx]),
-                    "is_focal": is_focal,
-                    "is_diffuse": is_diffuse,
-                    "probability": float(prob_scores[idx]),
-                })
+            for idx, scan_id_or_tuple in enumerate(scan_ids_split):
+                if is_all_organs_mode:
+                    scan_id, organ_name_for_pred = scan_id_or_tuple
+                    is_focal, is_diffuse = get_subgroup_info_all_organs(
+                        scan_id, organ_name_for_pred, subgroups_split
+                    )
+                    split_predictions.append({
+                        "scan_id": scan_id,
+                        "organ_name": organ_name_for_pred,
+                        "ground_truth": int(y_true[idx]),
+                        "is_focal": is_focal,
+                        "is_diffuse": is_diffuse,
+                        "probability": float(prob_scores[idx]),
+                    })
+                else:
+                    is_focal, is_diffuse = get_subgroup_info(scan_id_or_tuple, subgroups_split, organ_name)
+                    split_predictions.append({
+                        "scan_id": scan_id_or_tuple,
+                        "ground_truth": int(y_true[idx]),
+                        "is_focal": is_focal,
+                        "is_diffuse": is_diffuse,
+                        "probability": float(prob_scores[idx]),
+                    })
             group_predictions[split_name] = split_predictions
         
         metrics["evaluation_groups"][group_name] = group_metrics
@@ -586,104 +618,195 @@ def _filter_patch_features_with_scan_ids(
 def main(args):
     fix_random_seeds(args.seed)
 
-    feature_dir_training = get_raw_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "training"
-    )
-    feature_dir_validation = get_raw_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "validation"
-    )
-    feature_dir_test = get_raw_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "test"
-    )
-    # For attention, we don't use aggregation_method, but we need to provide a dummy value for path compatibility
-    # The actual features come from raw feature directory
-    output_metrics = get_attention_metrics_output_path(
-        args.output_root, args.model_name, args.organ_name
-    )
-    output_checkpoint = get_attention_checkpoint_output_dir(
-        args.output_root, args.model_name, args.organ_name
-    )
-    
-    # Validate inputs early
-    validate_evaluation_inputs(
-        feature_dir_training,
-        feature_dir_validation,
-        feature_dir_test,
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-        args.organ_name,
-        output_metrics,
-        output_checkpoint,
-    )
-    
+    is_all_organs_mode = (args.organ_name == "all")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Load annotations
-    train_annotations, test_annotations = load_and_validate_annotations(
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-    )
-    
-    val_annotations = train_annotations  # Validation uses train annotations
-    
-    # Load subgroup annotations
-    train_subgroups, test_subgroups = load_subgroup_annotations(
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-    )
-    val_subgroups = train_subgroups  # Validation uses train subgroups
-    
-    # Load raw patch features and labels with scan IDs
-    try:
-        patch_features_train, y_train, train_scan_ids = load_raw_features_and_labels(
-            feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+    if is_all_organs_mode:
+        output_metrics = get_all_organs_attention_metrics_output_path(
+            args.output_root, args.model_name
         )
-        patch_features_val, y_val, val_scan_ids = load_raw_features_and_labels(
-            feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+        output_checkpoint = get_all_organs_attention_checkpoint_output_dir(
+            args.output_root, args.model_name
         )
-        patch_features_test, y_test, test_scan_ids = load_raw_features_and_labels(
-            feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+        
+        # Load annotations
+        train_annotations, test_annotations = load_and_validate_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
         )
-    except Exception as e:
-        raise RuntimeError(f"Failed to load features: {e}") from e
-    
-    # Get dataset root and load AMOS22 scan IDs
-    dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
-    amos22_scan_ids = load_amos22_scan_ids(dataset_root)
-    
-    # Run evaluation on all data
-    all_metrics, all_predictions = run_attention_evaluation(
-        patch_features_train, y_train, train_scan_ids,
-        patch_features_val, y_val, val_scan_ids,
-        patch_features_test, y_test, test_scan_ids,
-        train_subgroups, val_subgroups, test_subgroups,
-        args.organ_name,
-        device,
-        checkpoint_dir=output_checkpoint,
-    )
-    
-    # Filter out AMOS22 scans and run evaluation again
-    patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered = filter_patch_features_by_scan_ids(
-        patch_features_train, y_train, train_scan_ids, amos22_scan_ids
-    )
-    patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered = filter_patch_features_by_scan_ids(
-        patch_features_val, y_val, val_scan_ids, amos22_scan_ids
-    )
-    patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered = filter_patch_features_by_scan_ids(
-        patch_features_test, y_test, test_scan_ids, amos22_scan_ids
-    )
-    
-    # Use a separate checkpoint directory for exclude_amos22
-    exclude_checkpoint_dir = output_checkpoint + "_exclude_amos22"
-    exclude_amos22_metrics, exclude_amos22_predictions = run_attention_evaluation(
-        patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered,
-        patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered,
-        patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered,
-        train_subgroups, val_subgroups, test_subgroups,
-        args.organ_name,
-        device,
-        checkpoint_dir=exclude_checkpoint_dir,
-    )
+        
+        val_annotations = train_annotations
+        
+        # Load subgroup annotations
+        train_subgroups, test_subgroups = load_subgroup_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+        )
+        val_subgroups = train_subgroups
+        
+        # Load raw patch features and labels from all organs
+        try:
+            patch_features_train, y_train, train_scan_organ_ids = load_raw_features_and_labels_all_organs(
+                args.output_root, args.model_name, "training", train_annotations, return_scan_ids=True
+            )
+            patch_features_val, y_val, val_scan_organ_ids = load_raw_features_and_labels_all_organs(
+                args.output_root, args.model_name, "validation", val_annotations, return_scan_ids=True
+            )
+            patch_features_test, y_test, test_scan_organ_ids = load_raw_features_and_labels_all_organs(
+                args.output_root, args.model_name, "test", test_annotations, return_scan_ids=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load features: {e}") from e
+        
+        # Get dataset root and load AMOS22 scan IDs
+        dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
+        amos22_scan_ids = load_amos22_scan_ids(dataset_root)
+        
+        # Filter out AMOS22 scans
+        def filter_all_organs_patch_features_by_scan_ids(patch_features_list, y, scan_organ_ids, exclude_scan_ids):
+            """Filter patch features by excluding scan IDs."""
+            filtered_features = []
+            filtered_labels = []
+            filtered_scan_organ_ids = []
+            for idx, (scan_id, organ_name) in enumerate(scan_organ_ids):
+                if scan_id not in exclude_scan_ids:
+                    filtered_features.append(patch_features_list[idx])
+                    filtered_labels.append(y[idx])
+                    filtered_scan_organ_ids.append((scan_id, organ_name))
+            return filtered_features, np.array(filtered_labels), filtered_scan_organ_ids
+        
+        # Run evaluation on all data
+        all_metrics, all_predictions = run_attention_evaluation(
+            patch_features_train, y_train, train_scan_organ_ids,
+            patch_features_val, y_val, val_scan_organ_ids,
+            patch_features_test, y_test, test_scan_organ_ids,
+            train_subgroups, val_subgroups, test_subgroups,
+            "all",
+            device,
+            checkpoint_dir=output_checkpoint,
+            is_all_organs_mode=True,
+        )
+        
+        # Filter out AMOS22 scans and run evaluation again
+        patch_features_train_filtered, y_train_filtered, train_scan_organ_ids_filtered = filter_all_organs_patch_features_by_scan_ids(
+            patch_features_train, y_train, train_scan_organ_ids, amos22_scan_ids
+        )
+        patch_features_val_filtered, y_val_filtered, val_scan_organ_ids_filtered = filter_all_organs_patch_features_by_scan_ids(
+            patch_features_val, y_val, val_scan_organ_ids, amos22_scan_ids
+        )
+        patch_features_test_filtered, y_test_filtered, test_scan_organ_ids_filtered = filter_all_organs_patch_features_by_scan_ids(
+            patch_features_test, y_test, test_scan_organ_ids, amos22_scan_ids
+        )
+        
+        # Use a separate checkpoint directory for exclude_amos22
+        exclude_checkpoint_dir = output_checkpoint + "_exclude_amos22"
+        exclude_amos22_metrics, exclude_amos22_predictions = run_attention_evaluation(
+            patch_features_train_filtered, y_train_filtered, train_scan_organ_ids_filtered,
+            patch_features_val_filtered, y_val_filtered, val_scan_organ_ids_filtered,
+            patch_features_test_filtered, y_test_filtered, test_scan_organ_ids_filtered,
+            train_subgroups, val_subgroups, test_subgroups,
+            "all",
+            device,
+            checkpoint_dir=exclude_checkpoint_dir,
+            is_all_organs_mode=True,
+        )
+    else:
+        feature_dir_training = get_raw_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "training"
+        )
+        feature_dir_validation = get_raw_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "validation"
+        )
+        feature_dir_test = get_raw_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "test"
+        )
+        output_metrics = get_attention_metrics_output_path(
+            args.output_root, args.model_name, args.organ_name
+        )
+        output_checkpoint = get_attention_checkpoint_output_dir(
+            args.output_root, args.model_name, args.organ_name
+        )
+        
+        # Validate inputs early
+        validate_evaluation_inputs(
+            feature_dir_training,
+            feature_dir_validation,
+            feature_dir_test,
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+            args.organ_name,
+            output_metrics,
+            output_checkpoint,
+        )
+        
+        # Load annotations
+        train_annotations, test_annotations = load_and_validate_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+        )
+        
+        val_annotations = train_annotations
+        
+        # Load subgroup annotations
+        train_subgroups, test_subgroups = load_subgroup_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+        )
+        val_subgroups = train_subgroups
+        
+        # Load raw patch features and labels with scan IDs
+        try:
+            patch_features_train, y_train, train_scan_ids = load_raw_features_and_labels(
+                feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+            )
+            patch_features_val, y_val, val_scan_ids = load_raw_features_and_labels(
+                feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+            )
+            patch_features_test, y_test, test_scan_ids = load_raw_features_and_labels(
+                feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load features: {e}") from e
+        
+        # Get dataset root and load AMOS22 scan IDs
+        dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
+        amos22_scan_ids = load_amos22_scan_ids(dataset_root)
+        
+        # Run evaluation on all data
+        all_metrics, all_predictions = run_attention_evaluation(
+            patch_features_train, y_train, train_scan_ids,
+            patch_features_val, y_val, val_scan_ids,
+            patch_features_test, y_test, test_scan_ids,
+            train_subgroups, val_subgroups, test_subgroups,
+            args.organ_name,
+            device,
+            checkpoint_dir=output_checkpoint,
+            is_all_organs_mode=False,
+        )
+        
+        # Filter out AMOS22 scans and run evaluation again
+        patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered = filter_patch_features_by_scan_ids(
+            patch_features_train, y_train, train_scan_ids, amos22_scan_ids
+        )
+        patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered = filter_patch_features_by_scan_ids(
+            patch_features_val, y_val, val_scan_ids, amos22_scan_ids
+        )
+        patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered = filter_patch_features_by_scan_ids(
+            patch_features_test, y_test, test_scan_ids, amos22_scan_ids
+        )
+        
+        # Use a separate checkpoint directory for exclude_amos22
+        exclude_checkpoint_dir = output_checkpoint + "_exclude_amos22"
+        exclude_amos22_metrics, exclude_amos22_predictions = run_attention_evaluation(
+            patch_features_train_filtered, y_train_filtered, train_scan_ids_filtered,
+            patch_features_val_filtered, y_val_filtered, val_scan_ids_filtered,
+            patch_features_test_filtered, y_test_filtered, test_scan_ids_filtered,
+            train_subgroups, val_subgroups, test_subgroups,
+            args.organ_name,
+            device,
+            checkpoint_dir=exclude_checkpoint_dir,
+            is_all_organs_mode=False,
+        )
     
     # Structure output with two top-level objects
     metrics = {

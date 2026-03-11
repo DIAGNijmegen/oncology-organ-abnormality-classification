@@ -27,6 +27,10 @@ from .evaluation_utils import (
     get_predictions_output_path,
     get_subgroup_info,
     save_predictions,
+    load_features_and_labels_all_organs,
+    get_all_organs_metrics_output_path,
+    filter_all_organs_with_scan_ids,
+    get_subgroup_info_all_organs,
 )
 
 
@@ -38,6 +42,7 @@ def run_knn_evaluation(
     organ_name,
     k_values=[1, 3, 5, 10, 20, 30],
     return_predictions=False,
+    is_all_organs_mode=False,
 ):
     """
     Run kNN evaluation on the provided data.
@@ -93,18 +98,31 @@ def run_knn_evaluation(
                 test_scan_ids_group = test_scan_ids
             else:
                 # Normal + specific subgroup abnormal
-                X_train_group, y_train_group, train_scan_ids_group = _filter_with_scan_ids(
-                    X_train, y_train, train_scan_ids, train_subgroups,
-                    organ_name, subgroup_name
-                )
-                X_val_group, y_val_group, val_scan_ids_group = _filter_with_scan_ids(
-                    X_val, y_val, val_scan_ids, val_subgroups,
-                    organ_name, subgroup_name
-                )
-                X_test_group, y_test_group, test_scan_ids_group = _filter_with_scan_ids(
-                    X_test, y_test, test_scan_ids, test_subgroups,
-                    organ_name, subgroup_name
-                )
+                if is_all_organs_mode:
+                    # For 'all' mode, scan_ids are actually (scan_id, organ_name) tuples
+                    from .evaluation_utils import filter_all_organs_with_scan_ids
+                    X_train_group, y_train_group, train_scan_ids_group = filter_all_organs_with_scan_ids(
+                        X_train, y_train, train_scan_ids, train_subgroups, subgroup_name
+                    )
+                    X_val_group, y_val_group, val_scan_ids_group = filter_all_organs_with_scan_ids(
+                        X_val, y_val, val_scan_ids, val_subgroups, subgroup_name
+                    )
+                    X_test_group, y_test_group, test_scan_ids_group = filter_all_organs_with_scan_ids(
+                        X_test, y_test, test_scan_ids, test_subgroups, subgroup_name
+                    )
+                else:
+                    X_train_group, y_train_group, train_scan_ids_group = _filter_with_scan_ids(
+                        X_train, y_train, train_scan_ids, train_subgroups,
+                        organ_name, subgroup_name
+                    )
+                    X_val_group, y_val_group, val_scan_ids_group = _filter_with_scan_ids(
+                        X_val, y_val, val_scan_ids, val_subgroups,
+                        organ_name, subgroup_name
+                    )
+                    X_test_group, y_test_group, test_scan_ids_group = _filter_with_scan_ids(
+                        X_test, y_test, test_scan_ids, test_subgroups,
+                        organ_name, subgroup_name
+                    )
             
             # Evaluate on each split
             splits = [
@@ -155,15 +173,30 @@ def run_knn_evaluation(
                 # Collect predictions if requested
                 if return_predictions:
                     split_predictions = []
-                    for idx, scan_id in enumerate(scan_ids_split):
-                        is_focal, is_diffuse = get_subgroup_info(scan_id, subgroups_split, organ_name)
-                        split_predictions.append({
-                            "scan_id": scan_id,
-                            "ground_truth": int(y_split[idx]),
-                            "is_focal": is_focal,
-                            "is_diffuse": is_diffuse,
-                            "probability": float(y_prob[idx]) if y_prob is not None else None,
-                        })
+                    for idx, scan_id_or_tuple in enumerate(scan_ids_split):
+                        if is_all_organs_mode:
+                            from .evaluation_utils import get_subgroup_info_all_organs
+                            scan_id, organ_name_for_pred = scan_id_or_tuple
+                            is_focal, is_diffuse = get_subgroup_info_all_organs(
+                                scan_id, organ_name_for_pred, subgroups_split
+                            )
+                            split_predictions.append({
+                                "scan_id": scan_id,
+                                "organ_name": organ_name_for_pred,
+                                "ground_truth": int(y_split[idx]),
+                                "is_focal": is_focal,
+                                "is_diffuse": is_diffuse,
+                                "probability": float(y_prob[idx]) if y_prob is not None else None,
+                            })
+                        else:
+                            is_focal, is_diffuse = get_subgroup_info(scan_id_or_tuple, subgroups_split, organ_name)
+                            split_predictions.append({
+                                "scan_id": scan_id_or_tuple,
+                                "ground_truth": int(y_split[idx]),
+                                "is_focal": is_focal,
+                                "is_diffuse": is_diffuse,
+                                "probability": float(y_prob[idx]) if y_prob is not None else None,
+                            })
                     group_predictions[split_name] = split_predictions
             
             result["evaluation_groups"][group_name] = group_metrics
@@ -217,96 +250,189 @@ def _filter_with_scan_ids(
     return X[filtered_indices], y[filtered_indices], [scan_ids[i] for i in filtered_indices]
 
 
+
+
 def main(args):
     fix_random_seeds(getattr(args, "seed", 0))
 
-    feature_dir_training = get_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "training", args.aggregation_method
-    )
-    feature_dir_validation = get_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "validation", args.aggregation_method
-    )
-    feature_dir_test = get_feature_dir(
-        args.output_root, args.model_name, args.organ_name, "test", args.aggregation_method
-    )
-    output_metrics = get_metrics_output_path(
-        args.output_root, args.model_name, args.organ_name, args.aggregation_method, "knn"
-    )
+    is_all_organs_mode = (args.organ_name == "all")
     
-    # Validate inputs early
-    validate_evaluation_inputs(
-        feature_dir_training,
-        feature_dir_validation,
-        feature_dir_test,
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-        args.organ_name,
-        output_metrics,
-    )
-    
-    # Load annotations
-    train_annotations, test_annotations = load_and_validate_annotations(
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-    )
-    
-    # Combine annotations for validation (validation uses train annotations)
-    val_annotations = train_annotations
-    
-    # Load subgroup annotations
-    train_subgroups, test_subgroups = load_subgroup_annotations(
-        args.annotations_train_csv,
-        args.annotations_test_csv,
-    )
-    val_subgroups = train_subgroups  # Validation uses train subgroups
-    
-    # Load features and labels for each split
-    try:
-        X_train, y_train, train_scan_ids = load_features_and_labels(
-            feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+    if is_all_organs_mode:
+        output_metrics = get_all_organs_metrics_output_path(
+            args.output_root, args.model_name, args.aggregation_method, "knn"
         )
-        X_val, y_val, val_scan_ids = load_features_and_labels(
-            feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+        
+        # For 'all' mode, we don't validate individual feature directories
+        # Instead, we'll validate during loading
+        
+        # Load annotations
+        train_annotations, test_annotations = load_and_validate_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
         )
-        X_test, y_test, test_scan_ids = load_features_and_labels(
-            feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+        
+        val_annotations = train_annotations
+        
+        # Load subgroup annotations
+        train_subgroups, test_subgroups = load_subgroup_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
         )
-    except Exception as e:
-        raise RuntimeError(f"Failed to load features: {e}") from e
-    
-    # Get dataset root and load AMOS22 scan IDs
-    dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
-    amos22_scan_ids = load_amos22_scan_ids(dataset_root)
-    
-    # Run evaluation on all data
-    all_results, all_predictions = run_knn_evaluation(
-        X_train, y_train, train_scan_ids,
-        X_val, y_val, val_scan_ids,
-        X_test, y_test, test_scan_ids,
-        train_subgroups, val_subgroups, test_subgroups,
-        args.organ_name,
-        return_predictions=True,
-    )
-    
-    # Filter out AMOS22 scans and run evaluation again
-    X_train_filtered, y_train_filtered, train_scan_ids_filtered = filter_by_scan_ids(
-        X_train, y_train, train_scan_ids, amos22_scan_ids
-    )
-    X_val_filtered, y_val_filtered, val_scan_ids_filtered = filter_by_scan_ids(
-        X_val, y_val, val_scan_ids, amos22_scan_ids
-    )
-    X_test_filtered, y_test_filtered, test_scan_ids_filtered = filter_by_scan_ids(
-        X_test, y_test, test_scan_ids, amos22_scan_ids
-    )
-    
-    exclude_amos22_results, exclude_amos22_predictions = run_knn_evaluation(
-        X_train_filtered, y_train_filtered, train_scan_ids_filtered,
-        X_val_filtered, y_val_filtered, val_scan_ids_filtered,
-        X_test_filtered, y_test_filtered, test_scan_ids_filtered,
-        train_subgroups, val_subgroups, test_subgroups,
-        args.organ_name,
-        return_predictions=True,
-    )
+        val_subgroups = train_subgroups
+        
+        # Load features and labels from all organs for each split
+        try:
+            X_train, y_train, train_scan_organ_ids = load_features_and_labels_all_organs(
+                args.output_root, args.model_name, "training", args.aggregation_method,
+                train_annotations, return_scan_ids=True
+            )
+            X_val, y_val, val_scan_organ_ids = load_features_and_labels_all_organs(
+                args.output_root, args.model_name, "validation", args.aggregation_method,
+                val_annotations, return_scan_ids=True
+            )
+            X_test, y_test, test_scan_organ_ids = load_features_and_labels_all_organs(
+                args.output_root, args.model_name, "test", args.aggregation_method,
+                test_annotations, return_scan_ids=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load features: {e}") from e
+        
+        # Get dataset root and load AMOS22 scan IDs
+        dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
+        amos22_scan_ids = load_amos22_scan_ids(dataset_root)
+        
+        # Filter out AMOS22 scans
+        def filter_all_organs_by_scan_ids(X, y, scan_organ_ids, exclude_scan_ids):
+            """Filter scan_organ_ids by excluding scan IDs."""
+            filtered_indices = []
+            for idx, (scan_id, organ_name) in enumerate(scan_organ_ids):
+                if scan_id not in exclude_scan_ids:
+                    filtered_indices.append(idx)
+            if len(filtered_indices) == 0:
+                return np.array([]), np.array([]), []
+            filtered_indices = np.array(filtered_indices)
+            return X[filtered_indices], y[filtered_indices], [scan_organ_ids[i] for i in filtered_indices]
+        
+        # Run evaluation on all data
+        all_results, all_predictions = run_knn_evaluation(
+            X_train, y_train, train_scan_organ_ids,
+            X_val, y_val, val_scan_organ_ids,
+            X_test, y_test, test_scan_organ_ids,
+            train_subgroups, val_subgroups, test_subgroups,
+            "all",
+            return_predictions=True,
+            is_all_organs_mode=True,
+        )
+        
+        # Filter out AMOS22 scans and run evaluation again
+        X_train_filtered, y_train_filtered, train_scan_organ_ids_filtered = filter_all_organs_by_scan_ids(
+            X_train, y_train, train_scan_organ_ids, amos22_scan_ids
+        )
+        X_val_filtered, y_val_filtered, val_scan_organ_ids_filtered = filter_all_organs_by_scan_ids(
+            X_val, y_val, val_scan_organ_ids, amos22_scan_ids
+        )
+        X_test_filtered, y_test_filtered, test_scan_organ_ids_filtered = filter_all_organs_by_scan_ids(
+            X_test, y_test, test_scan_organ_ids, amos22_scan_ids
+        )
+        
+        exclude_amos22_results, exclude_amos22_predictions = run_knn_evaluation(
+            X_train_filtered, y_train_filtered, train_scan_organ_ids_filtered,
+            X_val_filtered, y_val_filtered, val_scan_organ_ids_filtered,
+            X_test_filtered, y_test_filtered, test_scan_organ_ids_filtered,
+            train_subgroups, val_subgroups, test_subgroups,
+            "all",
+            return_predictions=True,
+            is_all_organs_mode=True,
+        )
+    else:
+        feature_dir_training = get_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "training", args.aggregation_method
+        )
+        feature_dir_validation = get_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "validation", args.aggregation_method
+        )
+        feature_dir_test = get_feature_dir(
+            args.output_root, args.model_name, args.organ_name, "test", args.aggregation_method
+        )
+        output_metrics = get_metrics_output_path(
+            args.output_root, args.model_name, args.organ_name, args.aggregation_method, "knn"
+        )
+        
+        # Validate inputs early
+        validate_evaluation_inputs(
+            feature_dir_training,
+            feature_dir_validation,
+            feature_dir_test,
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+            args.organ_name,
+            output_metrics,
+        )
+        
+        # Load annotations
+        train_annotations, test_annotations = load_and_validate_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+        )
+        
+        val_annotations = train_annotations
+        
+        # Load subgroup annotations
+        train_subgroups, test_subgroups = load_subgroup_annotations(
+            args.annotations_train_csv,
+            args.annotations_test_csv,
+        )
+        val_subgroups = train_subgroups
+        
+        # Load features and labels for each split
+        try:
+            X_train, y_train, train_scan_ids = load_features_and_labels(
+                feature_dir_training, train_annotations, args.organ_name, return_scan_ids=True
+            )
+            X_val, y_val, val_scan_ids = load_features_and_labels(
+                feature_dir_validation, val_annotations, args.organ_name, return_scan_ids=True
+            )
+            X_test, y_test, test_scan_ids = load_features_and_labels(
+                feature_dir_test, test_annotations, args.organ_name, return_scan_ids=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load features: {e}") from e
+        
+        # Get dataset root and load AMOS22 scan IDs
+        dataset_root = get_dataset_root_from_annotations_path(args.annotations_train_csv)
+        amos22_scan_ids = load_amos22_scan_ids(dataset_root)
+        
+        # Run evaluation on all data
+        all_results, all_predictions = run_knn_evaluation(
+            X_train, y_train, train_scan_ids,
+            X_val, y_val, val_scan_ids,
+            X_test, y_test, test_scan_ids,
+            train_subgroups, val_subgroups, test_subgroups,
+            args.organ_name,
+            return_predictions=True,
+            is_all_organs_mode=False,
+        )
+        
+        # Filter out AMOS22 scans and run evaluation again
+        X_train_filtered, y_train_filtered, train_scan_ids_filtered = filter_by_scan_ids(
+            X_train, y_train, train_scan_ids, amos22_scan_ids
+        )
+        X_val_filtered, y_val_filtered, val_scan_ids_filtered = filter_by_scan_ids(
+            X_val, y_val, val_scan_ids, amos22_scan_ids
+        )
+        X_test_filtered, y_test_filtered, test_scan_ids_filtered = filter_by_scan_ids(
+            X_test, y_test, test_scan_ids, amos22_scan_ids
+        )
+        
+        exclude_amos22_results, exclude_amos22_predictions = run_knn_evaluation(
+            X_train_filtered, y_train_filtered, train_scan_ids_filtered,
+            X_val_filtered, y_val_filtered, val_scan_ids_filtered,
+            X_test_filtered, y_test_filtered, test_scan_ids_filtered,
+            train_subgroups, val_subgroups, test_subgroups,
+            args.organ_name,
+            return_predictions=True,
+            is_all_organs_mode=False,
+        )
     
     # Structure output with two top-level objects
     metrics = {

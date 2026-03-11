@@ -10,6 +10,7 @@ from util.leavs_utils import (
     parse_test_subgroup_annotations,
     infer_labels_from_subgroups,
 )
+from util.snakemake_helpers import VALID_ORGANS
 
 
 def get_base_args_parser(description: Optional[str] = None, add_help: bool = True):
@@ -687,3 +688,338 @@ def save_predictions(output_path: str, predictions: dict):
     # Verify output was created
     if not os.path.exists(output_path):
         raise RuntimeError(f"Predictions file was not created: {output_path}")
+
+
+def load_features_and_labels_all_organs(
+    output_root: str,
+    model_name: str,
+    split: str,
+    aggregation_method: str,
+    annotations: dict,
+    return_scan_ids: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, Optional[list]]:
+    """
+    Load features and labels from all organs, treating each organ-scan combination as a sample.
+    
+    Args:
+        output_root: Root directory for outputs
+        model_name: Name of the feature model
+        split: Split name (training, validation, test)
+        aggregation_method: Aggregation method name
+        annotations: Dictionary mapping scan_id to organ labels {scan_id: {organ_name: label}}
+        return_scan_ids: If True, also return list of (scan_id, organ_name) tuples
+    
+    Returns:
+        (features, labels) or (features, labels, scan_organ_ids) if return_scan_ids=True
+        scan_organ_ids is a list of tuples: [(scan_id, organ_name), ...]
+    """
+    features_list = []
+    labels_list = []
+    scan_organ_ids_list = []
+    
+    for organ_name in VALID_ORGANS:
+        feature_dir = get_feature_dir(output_root, model_name, organ_name, split, aggregation_method)
+        
+        if not os.path.isdir(feature_dir):
+            # Skip if feature directory doesn't exist for this organ
+            continue
+        
+        feature_files = glob.glob(os.path.join(feature_dir, "*.npz"))
+        
+        for feature_file in sorted(feature_files):
+            scan_id = os.path.basename(feature_file).replace(".npz", "")
+            
+            # Get label from annotations for this scan_id and organ
+            if scan_id in annotations and organ_name in annotations[scan_id]:
+                label = annotations[scan_id][organ_name]
+                if label in [0, 1]:  # Only include valid labels
+                    data = np.load(feature_file)
+                    
+                    # Skip placeholder files
+                    is_placeholder = data.get("is_placeholder", False)
+                    if is_placeholder:
+                        continue
+                    
+                    feature = data["features"]
+                    
+                    # Skip empty features
+                    if feature.size == 0:
+                        continue
+                    
+                    # Flatten aggregated features to 1D for evaluation
+                    feature_flat = feature.flatten()
+                    
+                    features_list.append(feature_flat)
+                    labels_list.append(label)
+                    if return_scan_ids:
+                        scan_organ_ids_list.append((scan_id, organ_name))
+    
+    if len(features_list) == 0:
+        if return_scan_ids:
+            return np.array([]), np.array([]), []
+        return np.array([]), np.array([])
+    
+    if return_scan_ids:
+        return np.array(features_list), np.array(labels_list), scan_organ_ids_list
+    return np.array(features_list), np.array(labels_list)
+
+
+def get_all_organs_metrics_output_path(output_root: str, model_name: str, aggregation_method: str, evaluation_mode: str) -> str:
+    """Get metrics output path for 'all' organs evaluation."""
+    return os.path.join(
+        output_root,
+        model_name,
+        "all",
+        "metrics",
+        "aggregated",
+        aggregation_method,
+        f"{evaluation_mode}.json",
+    )
+
+
+def get_all_organs_checkpoint_output_dir(output_root: str, model_name: str, aggregation_method: str) -> str:
+    """Get checkpoint output directory for 'all' organs evaluation."""
+    return os.path.join(
+        output_root,
+        model_name,
+        "all",
+        "checkpoints",
+        "aggregated",
+        aggregation_method,
+    )
+
+
+def get_all_organs_attention_metrics_output_path(output_root: str, model_name: str) -> str:
+    """Get metrics output path for 'all' organs attention evaluation."""
+    return os.path.join(
+        output_root,
+        model_name,
+        "all",
+        "metrics",
+        "attention",
+        "attention.json",
+    )
+
+
+def get_all_organs_attention_checkpoint_output_dir(output_root: str, model_name: str) -> str:
+    """Get checkpoint output directory for 'all' organs attention evaluation."""
+    return os.path.join(
+        output_root,
+        model_name,
+        "all",
+        "checkpoints",
+        "attention",
+    )
+
+
+def filter_all_organs_with_scan_ids(
+    X: np.ndarray,
+    y: np.ndarray,
+    scan_organ_ids: list,
+    subgroup_annotations: dict,
+    subgroup_name: str,
+) -> tuple:
+    """
+    Filter features, labels, and scan_organ_ids for 'all' organs mode.
+    Only includes organs that belong to the specified subgroup (or normal organs).
+    
+    Args:
+        X: Feature array
+        y: Label array
+        scan_organ_ids: List of (scan_id, organ_name) tuples
+        subgroup_annotations: Subgroup annotations dict {scan_id: {organ_name: {subgroup_name: value}}}
+        subgroup_name: Name of the subgroup (e.g., 'diffuse', 'focal')
+    
+    Returns:
+        (X_filtered, y_filtered, scan_organ_ids_filtered)
+    """
+    if len(X) == 0:
+        return X, y, scan_organ_ids
+    
+    if len(scan_organ_ids) != len(X):
+        raise ValueError(f"Mismatch: {len(scan_organ_ids)} scan_organ_ids but {len(X)} samples")
+    
+    filtered_indices = []
+    for idx, (scan_id, organ_name) in enumerate(scan_organ_ids):
+        # Include all normal samples (label=0)
+        if y[idx] == 0:
+            filtered_indices.append(idx)
+        # Include abnormal samples (label=1) with the specified subgroup
+        elif y[idx] == 1:
+            if scan_id in subgroup_annotations:
+                organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+                # Check if this abnormal organ has the specified subgroup value=1
+                if subgroup_name in organ_subgroups and organ_subgroups[subgroup_name] == 1:
+                    filtered_indices.append(idx)
+    
+    if len(filtered_indices) == 0:
+        return np.array([]), np.array([]), []
+    
+    filtered_indices = np.array(filtered_indices)
+    return (
+        X[filtered_indices],
+        y[filtered_indices],
+        [scan_organ_ids[i] for i in filtered_indices]
+    )
+
+
+def get_subgroup_info_all_organs(
+    scan_id: str,
+    organ_name: str,
+    subgroup_annotations: Dict[str, Dict[str, Dict[str, int]]],
+) -> Tuple[Optional[bool], Optional[bool]]:
+    """
+    Get focal and diffuse information for a scan ID and organ in 'all' organs mode.
+    
+    Args:
+        scan_id: Scan ID
+        organ_name: Name of the organ
+        subgroup_annotations: Subgroup annotations dict
+    
+    Returns:
+        (is_focal, is_diffuse) - booleans or None if not available
+    """
+    if scan_id not in subgroup_annotations:
+        return None, None
+    
+    organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+    is_focal = bool(organ_subgroups.get("focal", 0)) if "focal" in organ_subgroups else None
+    is_diffuse = bool(organ_subgroups.get("diffuse", 0)) if "diffuse" in organ_subgroups else None
+    
+    return is_focal, is_diffuse
+
+
+def load_raw_features_and_labels_all_organs(
+    output_root: str,
+    model_name: str,
+    split: str,
+    annotations: dict,
+    return_scan_ids: bool = False,
+) -> Tuple[List[np.ndarray], np.ndarray, Optional[list]]:
+    """
+    Load raw patch features and labels from all organs, treating each organ-scan combination as a sample.
+    
+    Args:
+        output_root: Root directory for outputs
+        model_name: Name of the feature model
+        split: Split name (training, validation, test)
+        annotations: Dictionary mapping scan_id to organ labels {scan_id: {organ_name: label}}
+        return_scan_ids: If True, also return list of (scan_id, organ_name) tuples
+    
+    Returns:
+        (patch_features_list, labels, scan_organ_ids) where:
+        - patch_features_list is a list of arrays, each with shape (n_patches, flattened_dim)
+        - labels is an array of labels
+        - scan_organ_ids is a list of tuples: [(scan_id, organ_name), ...] if return_scan_ids=True
+    """
+    patch_features_list = []
+    labels_list = []
+    scan_organ_ids_list = []
+    
+    for organ_name in VALID_ORGANS:
+        feature_dir = get_raw_feature_dir(output_root, model_name, organ_name, split)
+        
+        if not os.path.isdir(feature_dir):
+            # Skip if feature directory doesn't exist for this organ
+            continue
+        
+        feature_files = glob.glob(os.path.join(feature_dir, "*.npz"))
+        
+        for feature_file in sorted(feature_files):
+            scan_id = os.path.basename(feature_file).replace(".npz", "")
+            
+            # Get label from annotations for this scan_id and organ
+            if scan_id in annotations and organ_name in annotations[scan_id]:
+                label = annotations[scan_id][organ_name]
+                if label in [0, 1]:  # Only include valid labels
+                    data = np.load(feature_file)
+                    
+                    # Skip placeholder files
+                    is_placeholder = data.get("is_placeholder", False)
+                    if is_placeholder:
+                        continue
+                    
+                    patch_features = data["features"]  # Shape: (n_patches, ...)
+                    
+                    # Skip empty features
+                    if patch_features.size == 0 or len(patch_features) == 0:
+                        continue
+                    
+                    # Flatten each patch to 1D vector
+                    if len(patch_features.shape) == 1:
+                        # Single patch case - flatten and reshape to (1, flattened_dim)
+                        patch_features_flat = patch_features.flatten()
+                        patch_features = patch_features_flat.reshape(1, -1)
+                    else:
+                        # Multi-dimensional: (n_patches, ...) - flatten each patch individually
+                        n_patches = patch_features.shape[0]
+                        flattened_patches = []
+                        for i in range(n_patches):
+                            # Flatten each patch to 1D vector
+                            flattened_patch = patch_features[i].flatten()
+                            flattened_patches.append(flattened_patch)
+                        patch_features = np.array(flattened_patches)  # Shape: (n_patches, flattened_dim)
+                    
+                    patch_features_list.append(patch_features)
+                    labels_list.append(label)
+                    if return_scan_ids:
+                        scan_organ_ids_list.append((scan_id, organ_name))
+    
+    if len(patch_features_list) == 0:
+        if return_scan_ids:
+            return [], np.array([]), []
+        return [], np.array([])
+    
+    if return_scan_ids:
+        return patch_features_list, np.array(labels_list), scan_organ_ids_list
+    return patch_features_list, np.array(labels_list)
+
+
+def filter_patch_features_all_organs_with_scan_ids(
+    patch_features_list: List[np.ndarray],
+    y: np.ndarray,
+    scan_organ_ids: list,
+    subgroup_annotations: dict,
+    subgroup_name: str,
+) -> tuple:
+    """
+    Filter patch features, labels, and scan_organ_ids for 'all' organs mode.
+    Only includes organs that belong to the specified subgroup (or normal organs).
+    
+    Args:
+        patch_features_list: List of patch feature arrays
+        y: Label array
+        scan_organ_ids: List of (scan_id, organ_name) tuples
+        subgroup_annotations: Subgroup annotations dict {scan_id: {organ_name: {subgroup_name: value}}}
+        subgroup_name: Name of the subgroup (e.g., 'diffuse', 'focal')
+    
+    Returns:
+        (patch_features_filtered, y_filtered, scan_organ_ids_filtered)
+    """
+    if len(patch_features_list) == 0:
+        return patch_features_list, y, scan_organ_ids
+    
+    if len(scan_organ_ids) != len(patch_features_list):
+        raise ValueError(f"Mismatch: {len(scan_organ_ids)} scan_organ_ids but {len(patch_features_list)} samples")
+    
+    filtered_features = []
+    filtered_labels = []
+    filtered_scan_organ_ids = []
+    
+    for idx, (scan_id, organ_name) in enumerate(scan_organ_ids):
+        # Include all normal samples (label=0)
+        if y[idx] == 0:
+            filtered_features.append(patch_features_list[idx])
+            filtered_labels.append(y[idx])
+            filtered_scan_organ_ids.append((scan_id, organ_name))
+        # Include abnormal samples (label=1) with the specified subgroup
+        elif y[idx] == 1:
+            if scan_id in subgroup_annotations:
+                organ_subgroups = subgroup_annotations[scan_id].get(organ_name, {})
+                # Check if this abnormal organ has the specified subgroup value=1
+                if subgroup_name in organ_subgroups and organ_subgroups[subgroup_name] == 1:
+                    filtered_features.append(patch_features_list[idx])
+                    filtered_labels.append(y[idx])
+                    filtered_scan_organ_ids.append((scan_id, organ_name))
+    
+    return filtered_features, np.array(filtered_labels), filtered_scan_organ_ids

@@ -153,3 +153,130 @@ rule evaluate_attention:
                 --organ-name {wildcards.organ_name} \
                 --seed 0"
         """
+
+
+def get_all_organs_aggregation_progress_files(wildcards):
+    """Get all aggregation progress files for all organs for a given model/aggregation_method combination."""
+    # For vitg (spectrevitg), features are already aggregated, so use feature progress files
+    if wildcards.aggregation_method == "vitg":
+        return get_all_organs_feature_progress_files(wildcards)
+    
+    progress_files = []
+    for split in ["training", "validation", "test"]:
+        for organ_name in VALID_ORGANS:
+            batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, organ_name)
+            for batch_id in batch_ids:
+                if wildcards.aggregation_method == "mean":
+                    progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_mean.done"
+                elif wildcards.aggregation_method == "max":
+                    progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_max.done"
+                elif wildcards.aggregation_method == "std":
+                    progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_std.done"
+                elif wildcards.aggregation_method == "median":
+                    progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_median.done"
+                elif wildcards.aggregation_method == "meanstd":
+                    progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_meanstd.done"
+                else:
+                    raise ValueError(f"Unknown aggregation method: {wildcards.aggregation_method}")
+                progress_files.append(progress_file)
+    return progress_files
+
+
+def get_all_organs_feature_progress_files(wildcards):
+    """Get all feature extraction progress files for all organs for a given model combination."""
+    progress_files = []
+    for split in ["training", "validation", "test"]:
+        for organ_name in VALID_ORGANS:
+            batch_ids = get_batch_ids_for_model_split_organ_evaluation(wildcards.model_name, split, organ_name)
+            for batch_id in batch_ids:
+                progress_file = OUTPUT_ROOT + f"/{wildcards.model_name}/progress/{split}/{organ_name}/{batch_id}_features.done"
+                progress_files.append(progress_file)
+    return progress_files
+
+
+rule evaluate_knn_all:
+    input:
+        aggregation_progress_files = get_all_organs_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/all/metrics/aggregated/{aggregation_method}/knn.json"
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image="jtagscherer/evalblocks-core:0.0.1",
+        qos="idle",
+        cpus=16,
+        gpus=0,
+        mem_mb=16000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.knn \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name all"
+        """
+
+rule evaluate_linear_probing_all:
+    input:
+        aggregation_progress_files = get_all_organs_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/all/metrics/aggregated/{aggregation_method}/linear.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/all/checkpoints/aggregated/{aggregation_method}/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.linearprobing \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name all \
+                --seed 0"
+        """
+
+rule evaluate_attention_all:
+    input:
+        feature_progress_files = get_all_organs_feature_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/all/metrics/attention/attention.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/all/checkpoints/attention/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.attention \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name all \
+                --seed 0"
+        """
