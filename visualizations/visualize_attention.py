@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import nibabel as nib
 from tqdm import tqdm
 from monai.transforms import (
@@ -400,65 +401,110 @@ def create_attention_volume(
     window_size: Tuple[int, ...],
 ) -> np.ndarray:
     """
-    Create a 3D volume with attention weights mapped to spatial positions.
-    Uses max pooling for overlapping patches to show the maximum attention at each voxel.
+    Create a 3D attention volume by interpolating attention point values.
+    
+    For each patch, its attention weight is treated as a point value at the patch
+    center. These point values are interpolated to obtain an attention value at
+    every voxel. At the scan boundaries, the outermost point values are repeated
+    (nearest extrapolation).
     
     Args:
         attention_weights: (n_patches,) array of attention weights
-        positions: (n_patches, 3) array of (z, y, x) patch positions
+        positions: (n_patches, 3) or (n_patches,) array of positions
         organ_crop_shape: (z, y, x) shape of the organ crop
         window_size: (z, y, x) or (y, x) window size for patches
     
     Returns:
-        3D numpy array with attention weights at patch locations
+        3D numpy array with interpolated attention weights for each voxel.
     """
-    attention_volume = np.zeros(organ_crop_shape, dtype=np.float32)
-    count_volume = np.zeros(organ_crop_shape, dtype=np.float32)  # Track overlaps
-    
-    # Handle 2D vs 3D window sizes
-    if len(window_size) == 2:
-        window_z = 1  # For 2D models, assume single slice
-        window_y, window_x = window_size
-    else:
-        window_z, window_y, window_x = window_size
-    
-    # Map attention weights to spatial locations
-    for i, pos in enumerate(positions):
-        weight = attention_weights[i]
-        
-        # Handle 2D vs 3D positions
-        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
-            # 2D model (curia, umedpt) - pos is slice index (scalar)
-            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
-            z = pos_val
-            y = 0  # Center in y
-            x = 0  # Center in x
-            # For 2D models, use the full y and x dimensions
-            z_start = max(0, int(z))
-            z_end = min(organ_crop_shape[0], int(z) + window_z)
-            y_start = 0
-            y_end = organ_crop_shape[1]
-            x_start = 0
-            x_end = organ_crop_shape[2]
+    Dz, Dy, Dx = organ_crop_shape
+    attention_weights = np.asarray(attention_weights, dtype=np.float32)
+    positions = np.asarray(positions)
+
+    # 2D models (curia, umedpt): positions are slice indices along z
+    if len(window_size) == 2 or positions.ndim == 1:
+        # Ensure positions is 1D array of z-indices
+        if positions.ndim > 1:
+            positions_1d = positions.reshape(-1)
         else:
-            # 3D model - pos is (z, y, x) tuple or array
-            if isinstance(pos, (tuple, list)):
-                z, y, x = int(pos[0]), int(pos[1]), int(pos[2])
-            else:
-                z, y, x = int(pos[0]), int(pos[1]), int(pos[2])
-            
-            # Ensure positions are within bounds
-            z_start = max(0, int(z))
-            z_end = min(organ_crop_shape[0], int(z) + window_z)
-            y_start = max(0, int(y))
-            y_end = min(organ_crop_shape[1], int(y) + window_y)
-            x_start = max(0, int(x))
-            x_end = min(organ_crop_shape[2], int(x) + window_x)
-        
-        # Use max pooling for overlapping patches (show maximum attention)
-        patch_region = attention_volume[z_start:z_end, y_start:y_end, x_start:x_end]
-        attention_volume[z_start:z_end, y_start:y_end, x_start:x_end] = np.maximum(patch_region, weight)
-    
+            positions_1d = positions
+
+        z_points = positions_1d.astype(float)
+        att_points = attention_weights.astype(float)
+
+        # Sort by z position
+        order = np.argsort(z_points)
+        z_sorted = z_points[order]
+        att_sorted = att_points[order]
+
+        # Target z grid
+        z_grid = np.arange(Dz, dtype=float)
+
+        # 1D linear interpolation along z, with nearest extrapolation at boundaries
+        att_z = np.interp(z_grid, z_sorted, att_sorted,
+                          left=att_sorted[0], right=att_sorted[-1]).astype(np.float32)
+
+        # Broadcast over y and x
+        attention_volume = np.repeat(att_z[:, None, None], Dy, axis=1)
+        attention_volume = np.repeat(attention_volume, Dx, axis=2)
+        return attention_volume.astype(np.float32)
+
+    # 3D models: positions are (z, y, x) patch origins
+    # Compute patch centers in voxel coordinates
+    if len(window_size) == 3:
+        window_z, window_y, window_x = window_size
+    else:
+        # Fallback: derive a 3D window from 2D tuple
+        window_z = max(window_size)
+        window_y, window_x = window_size
+
+    z_centers = positions[:, 0].astype(float) + window_z / 2.0
+    y_centers = positions[:, 1].astype(float) + window_y / 2.0
+    x_centers = positions[:, 2].astype(float) + window_x / 2.0
+
+    # Get unique sorted center coordinates along each axis
+    z_unique = np.unique(z_centers)
+    y_unique = np.unique(y_centers)
+    x_unique = np.unique(x_centers)
+
+    Dzg, Hyg, Wxg = len(z_unique), len(y_unique), len(x_unique)
+
+    # Map each center to its grid index
+    def indices_from_centers(values, unique_vals):
+        # Since centers form a regular grid from sliding_window, use searchsorted
+        return np.searchsorted(unique_vals, values)
+
+    zi = indices_from_centers(z_centers, z_unique)
+    yi = indices_from_centers(y_centers, y_unique)
+    xi = indices_from_centers(x_centers, x_unique)
+
+    # Build coarse attention grid
+    coarse_grid = np.zeros((Dzg, Hyg, Wxg), dtype=np.float32)
+    count_grid = np.zeros((Dzg, Hyg, Wxg), dtype=np.int32)
+
+    for w, z_idx, y_idx, x_idx in zip(attention_weights, zi, yi, xi):
+        # If multiple patches map to same grid cell, take the max attention
+        if count_grid[z_idx, y_idx, x_idx] == 0:
+            coarse_grid[z_idx, y_idx, x_idx] = w
+        else:
+            coarse_grid[z_idx, y_idx, x_idx] = max(coarse_grid[z_idx, y_idx, x_idx], w)
+        count_grid[z_idx, y_idx, x_idx] += 1
+
+    # Pad coarse grid by repeating edge values so interpolation extrapolates
+    coarse_padded = np.pad(coarse_grid, pad_width=1, mode="edge")  # (Dzg+2, Hyg+2, Wxg+2)
+
+    # Upsample coarse grid to full crop resolution using trilinear interpolation
+    coarse_torch = torch.from_numpy(coarse_padded)[None, None, ...]  # [1,1,D,H,W]
+    coarse_torch = coarse_torch.float()
+
+    attention_torch = F.interpolate(
+        coarse_torch,
+        size=(Dz, Dy, Dx),
+        mode="trilinear",
+        align_corners=False,
+    )
+
+    attention_volume = attention_torch[0, 0].cpu().numpy().astype(np.float32)
     return attention_volume
 
 
