@@ -654,57 +654,58 @@ def main(args):
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
     
-    # Save individual patches with attention weights
-    patches_dir = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_patches")
-    os.makedirs(patches_dir, exist_ok=True)
-    print(f"Saving individual patches to: {patches_dir}")
-    
-    for i, (patch, pos, attn_weight) in enumerate(zip(patches, positions, attention_weights)):
-        # Format attention weight for filename (6 decimal places)
-        attn_str = f"{attn_weight:.6f}".replace(".", "p")
+    # Optionally save individual patches with attention weights
+    if args.save_patches:
+        patches_dir = os.path.join(output_dir, f"{scan_id_for_output}_{args.organ_name}_{args.model_name}_patches")
+        os.makedirs(patches_dir, exist_ok=True)
+        print(f"Saving individual patches to: {patches_dir}")
         
-        # Handle 2D vs 3D positions
-        # For 2D models (curia, umedpt), pos is a scalar (slice index)
-        # For 3D models (spectre, ctfm, tapct), pos is a tuple/array (z, y, x)
-        if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
-            # 2D model (curia, umedpt) - pos is slice index (scalar)
-            pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
-            pos_str = f"slice_{pos_val:04d}"
-        else:
-            # 3D model - pos is (z, y, x) tuple or array
-            if isinstance(pos, (tuple, list)):
-                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+        for i, (patch, pos, attn_weight) in enumerate(zip(patches, positions, attention_weights)):
+            # Format attention weight for filename (6 decimal places)
+            attn_str = f"{attn_weight:.6f}".replace(".", "p")
+            
+            # Handle 2D vs 3D positions
+            # For 2D models (curia, umedpt), pos is a scalar (slice index)
+            # For 3D models (spectre, ctfm, tapct), pos is a tuple/array (z, y, x)
+            if np.isscalar(pos) or (isinstance(pos, np.ndarray) and pos.ndim == 0):
+                # 2D model (curia, umedpt) - pos is slice index (scalar)
+                pos_val = int(pos) if np.isscalar(pos) else int(pos.item())
+                pos_str = f"slice_{pos_val:04d}"
             else:
-                # numpy array
-                pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
-            pos_str = f"z{pos_z:04d}_y{pos_y:04d}_x{pos_x:04d}"
+                # 3D model - pos is (z, y, x) tuple or array
+                if isinstance(pos, (tuple, list)):
+                    pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+                else:
+                    # numpy array
+                    pos_z, pos_y, pos_x = int(pos[0]), int(pos[1]), int(pos[2])
+                pos_str = f"z{pos_z:04d}_y{pos_y:04d}_x{pos_x:04d}"
+            
+            patch_filename = f"patch_{i:04d}_{pos_str}_attn{attn_str}.nii.gz"
+            patch_path = os.path.join(patches_dir, patch_filename)
+            
+            # Create patch affine with correct spacing
+            # Use the same spacing as the crop
+            patch_affine = np.eye(4)
+            patch_affine[0, 0] = crop_spacing[0]
+            patch_affine[1, 1] = crop_spacing[1]
+            patch_affine[2, 2] = crop_spacing[2]
+            # Origin at (0, 0, 0) - patches don't need to stack correctly
+            
+            # Save patch
+            if len(patch.shape) == 2:
+                # 2D patch - add singleton dimension for z
+                patch_3d = patch[np.newaxis, :, :]
+            else:
+                patch_3d = patch
+            
+            # Create a simple header for patches
+            patch_header = original_header.copy()
+            patch_header.set_zooms((crop_spacing[0], crop_spacing[1], crop_spacing[2]) + original_header.get_zooms()[3:])
+            
+            patch_nifti = nib.Nifti1Image(patch_3d.astype(np.float32), patch_affine, patch_header)
+            nib.save(patch_nifti, patch_path)
         
-        patch_filename = f"patch_{i:04d}_{pos_str}_attn{attn_str}.nii.gz"
-        patch_path = os.path.join(patches_dir, patch_filename)
-        
-        # Create patch affine with correct spacing
-        # Use the same spacing as the crop
-        patch_affine = np.eye(4)
-        patch_affine[0, 0] = crop_spacing[0]
-        patch_affine[1, 1] = crop_spacing[1]
-        patch_affine[2, 2] = crop_spacing[2]
-        # Origin at (0, 0, 0) - patches don't need to stack correctly
-        
-        # Save patch
-        if len(patch.shape) == 2:
-            # 2D patch - add singleton dimension for z
-            patch_3d = patch[np.newaxis, :, :]
-        else:
-            patch_3d = patch
-        
-        # Create a simple header for patches
-        patch_header = original_header.copy()
-        patch_header.set_zooms((crop_spacing[0], crop_spacing[1], crop_spacing[2]) + original_header.get_zooms()[3:])
-        
-        patch_nifti = nib.Nifti1Image(patch_3d.astype(np.float32), patch_affine, patch_header)
-        nib.save(patch_nifti, patch_path)
-    
-    print(f"Saved {len(patches)} patches")
+        print(f"Saved {len(patches)} patches")
     
     # Get window size for attention mapping
     window_sizes = {
@@ -748,7 +749,8 @@ def main(args):
     print(f"\nOutput files:")
     print(f"  - Organ crop: {crop_output_path}")
     print(f"  - Attention map: {attention_output_path}")
-    print(f"  - Individual patches: {patches_dir} ({len(patches)} patches)")
+    if args.save_patches:
+        print(f"  - Individual patches: {patches_dir} ({len(patches)} patches)")
     print(f"\nPrediction probability: {probability:.4f}")
 
 
@@ -792,6 +794,11 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="Dataset root directory",
+    )
+    parser.add_argument(
+        "--save-patches",
+        action="store_true",
+        help="If set, save individual patches as NIfTI files with attention weights in filenames",
     )
     
     args = parser.parse_args()
