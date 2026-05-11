@@ -53,3 +53,9 @@ snakemake --profile ./cluster-config-folder/
 ```
 
 That's it! The pipeline will orchestrate all computation steps, leveraging your cluster resources as specified in the configuration file.
+
+## Attribution
+
+This tool was developed by the [Oncology Research Group at the Diagnostic Image Analysis Group (DIAG)](https://www.diagnijmegen.nl/research/oncology/), Radboud University Medical Center.
+
+**Contact:** [Jan Tagscherer](jan.tagscherer@radboudumc.nl), [Alessa Hering](alessa.hering@radboudumc.nl).
