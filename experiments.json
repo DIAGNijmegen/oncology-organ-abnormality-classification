@@ -137,5 +137,29 @@
       "knn",
       "linear"
     ]
+  },
+  "spectrenovla": {
+    "description": "SPECTRE w/o VLA",
+    "model": {
+      "architecture": "spectrenovla",
+      "type": null
+    },
+    "datasets": [
+      {
+        "name": "LEAVS"
+      }
+    ],
+    "aggregation_methods": [
+      "mean",
+      "max",
+      "std",
+      "median",
+      "meanstd"
+    ],
+    "evaluation_modes": [
+      "knn",
+      "linear",
+      "attention"
+    ]
   }
 }
