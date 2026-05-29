@@ -125,6 +125,68 @@ rule evaluate_linear_probing:
                 --seed 0"
         """
 
+rule evaluate_mlp1:
+    input:
+        aggregation_progress_files = get_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/mlp1.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/mlp1/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.mlp \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name {wildcards.organ_name} \
+                --mlp-variant mlp1 \
+                --seed 0"
+        """
+
+rule evaluate_mlp2:
+    input:
+        aggregation_progress_files = get_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/mlp2.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/mlp2/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.mlp \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name {wildcards.organ_name} \
+                --mlp-variant mlp2 \
+                --seed 0"
+        """
+
 rule evaluate_attention:
     input:
         feature_progress_files = get_feature_progress_files
@@ -249,6 +311,68 @@ rule evaluate_linear_probing_all:
                 --annotations-train-csv {params.annotations_train_csv} \
                 --annotations-test-csv {params.annotations_test_csv} \
                 --organ-name all \
+                --seed 0"
+        """
+
+rule evaluate_mlp1_all:
+    input:
+        aggregation_progress_files = get_all_organs_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/all/metrics/aggregated/{aggregation_method}/mlp1.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/all/checkpoints/aggregated/{aggregation_method}/mlp1/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.mlp \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name all \
+                --mlp-variant mlp1 \
+                --seed 0"
+        """
+
+rule evaluate_mlp2_all:
+    input:
+        aggregation_progress_files = get_all_organs_aggregation_progress_files
+    output:
+        output_metrics = OUTPUT_ROOT + "/{model_name}/all/metrics/aggregated/{aggregation_method}/mlp2.json",
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/all/checkpoints/aggregated/{aggregation_method}/mlp2/")
+    params:
+        annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
+        annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
+    resources:
+        image = "jtagscherer/evalblocks-core:0.0.1",
+        qos="low",
+        cpus=16,
+        gpus=1,
+        mem_mb=24000,
+        time="1-00:00:00"
+    shell:
+        """
+        ./run_from_repository.sh "{REPOSITORY_ROOT}" \
+            "cd {REPOSITORY_ROOT} && \
+            /usr/local/bin/python3 -m evaluation.scripts.mlp \
+                --output-root {OUTPUT_ROOT} \
+                --model-name {wildcards.model_name} \
+                --aggregation-method {wildcards.aggregation_method} \
+                --annotations-train-csv {params.annotations_train_csv} \
+                --annotations-test-csv {params.annotations_test_csv} \
+                --organ-name all \
+                --mlp-variant mlp2 \
                 --seed 0"
         """
 

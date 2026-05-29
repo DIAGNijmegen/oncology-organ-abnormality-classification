@@ -20,6 +20,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -44,6 +46,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -68,6 +72,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -92,6 +98,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -116,6 +124,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -135,7 +145,9 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "mlp1",
+      "mlp2"
     ]
   },
   "spectrenovla": {
@@ -159,6 +171,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   }
