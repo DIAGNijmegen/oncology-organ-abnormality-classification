@@ -27,6 +27,9 @@ import argparse
 INFERENCE_BATCH_SIZE = 1
 PREPROCESS_WORKERS = 1
 
+MERLIN_WINDOW_SIZE = (160, 224, 224)
+MERLIN_TARGET_SPACING = (1.5, 1.5, 3)
+
 
 def load_model():
     model = Merlin(ImageEmbedding=True)
@@ -49,7 +52,7 @@ def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
     scan_img = nib.load(scan_path)
     original_affine = scan_img.affine
 
-    transform = Spacingd(keys=["image"], pixdim=(1.5, 1.5, 3), mode="bilinear")
+    transform = Spacingd(keys=["image"], pixdim=MERLIN_TARGET_SPACING, mode="bilinear")
 
     crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
     crop_meta = MetaTensor(crop_tensor, affine=original_affine)
@@ -59,6 +62,41 @@ def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
     resampled = transformed["image"].squeeze(0).numpy()
 
     return resampled
+
+
+def get_effective_native_window_size(
+    scan_path: str,
+    target_window_size: tuple = MERLIN_WINDOW_SIZE,
+) -> tuple:
+    """
+    Native (Z, Y, X) window size for get_organ_crop so that after Spacingd the crop is
+    at least target_window_size in every dimension.
+    """
+    probe = apply_spacing_to_crop(
+        np.zeros(target_window_size, dtype=np.float32),
+        scan_path,
+    )
+    effective = []
+    for i, target in enumerate(target_window_size):
+        resampled = probe.shape[i]
+        if resampled <= 0:
+            raise ValueError(
+                f"Spacing resampling produced non-positive size along axis {i} for {scan_path}"
+            )
+        if resampled >= target:
+            effective.append(target)
+        else:
+            effective.append(int(np.ceil(target * target / resampled)))
+
+    probe = apply_spacing_to_crop(
+        np.zeros(tuple(effective), dtype=np.float32),
+        scan_path,
+    )
+    for i, target in enumerate(target_window_size):
+        if probe.shape[i] < target:
+            effective[i] += target - probe.shape[i]
+
+    return tuple(effective)
 
 
 def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
@@ -154,13 +192,14 @@ def process_scan_for_organ(
     seg_path: str,
     organ_name: str,
     window_size: tuple,
+    native_window_size: tuple,
     output_path: str
 ):
     """
     Process a single scan for a specific organ.
     Returns True if features were extracted, False if placeholder was saved.
     """
-    result = get_organ_crop(scan_path, seg_path, organ_name, window_size)
+    result = get_organ_crop(scan_path, seg_path, organ_name, native_window_size)
     if result is None:
         print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Saving placeholder file.")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -220,6 +259,7 @@ def process_scan_for_all_organs(
     Process a scan for all specified organs.
     Saves one file per organ using the standard output path convention.
     """
+    native_window_size = get_effective_native_window_size(scan_path, window_size)
     processed_count = 0
     for organ_name in organ_names:
         output_path = os.path.join(
@@ -238,7 +278,9 @@ def process_scan_for_all_organs(
             print(f"Recomputing organ {organ_name}: existing output is invalid or unreadable at {output_path}")
         else:
             print(f"Extracting features for organ: {organ_name}")
-        if process_scan_for_organ(model, scan_path, seg_path, organ_name, window_size, output_path):
+        if process_scan_for_organ(
+            model, scan_path, seg_path, organ_name, window_size, native_window_size, output_path
+        ):
             processed_count += 1
 
     print(f"Successfully processed {processed_count}/{len(organ_names)} organs for scan")
@@ -276,8 +318,7 @@ def main(args):
 
     organ_names = VALID_ORGANS
 
-    # Merlin patch size: 224 x 224 x 160 (in-plane x in-plane x depth) -> (Z, Y, X)
-    window_size = (160, 224, 224)
+    window_size = MERLIN_WINDOW_SIZE
 
     print("Loading model...")
     try:
