@@ -89,10 +89,16 @@ def get_model_resources(wildcards):
         },
         "merlin": {
             "image": "jtagscherer/evalblocks-merlin:0.0.1",
-            "group": "featuremodels_merlin"
+            "group": "featuremodels_merlin",
+            "mem_mb": 32000,
         }
     }
     return model_resources.get(wildcards.model_name, model_resources["ctfm"])
+
+
+def get_model_mem_mb(wildcards):
+    """Get memory allocation based on model name."""
+    return get_model_resources(wildcards).get("mem_mb", 16000)
 
 
 def get_model_script_command(wildcards):
@@ -131,7 +137,7 @@ rule compute_features:
         qos = "low",
         cpus = 16,
         gpus = 1,
-        mem_mb = 16000,
+        mem_mb = get_model_mem_mb,
         time = "1-00:00:00"
     params:
         script_module = get_model_script_command,
