@@ -99,6 +99,42 @@ def get_effective_native_window_size(
     return tuple(effective)
 
 
+def fit_resampled_crop_to_window(
+    crop: np.ndarray,
+    window_size: tuple = MERLIN_WINDOW_SIZE,
+    fill_value: float = -1024.0,
+) -> np.ndarray:
+    """
+    If the resampled crop is at most 1 voxel off from window_size on every axis,
+    pad or center-crop to exactly window_size. Otherwise return the crop unchanged.
+    """
+    if not all(abs(crop.shape[i] - window_size[i]) <= 1 for i in range(3)):
+        return crop
+
+    if crop.shape == window_size:
+        return crop
+
+    out = np.full(window_size, fill_value, dtype=crop.dtype)
+    slices_in = []
+    slices_out = []
+    for axis in range(3):
+        in_size = crop.shape[axis]
+        out_size = window_size[axis]
+        if in_size >= out_size:
+            start = (in_size - out_size) // 2
+            slices_in.append(slice(start, start + out_size))
+            slices_out.append(slice(0, out_size))
+        else:
+            start = (out_size - in_size) // 2
+            slices_in.append(slice(0, in_size))
+            slices_out.append(slice(start, start + in_size))
+
+    out[slices_out[0], slices_out[1], slices_out[2]] = crop[
+        slices_in[0], slices_in[1], slices_in[2]
+    ]
+    return out
+
+
 def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
     """
     Preprocess a 3D patch for Merlin.
@@ -216,6 +252,7 @@ def process_scan_for_organ(
     organ_crop, bbox_origin = result
 
     organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
+    organ_crop = fit_resampled_crop_to_window(organ_crop, window_size)
 
     features, positions = extract_features_for_organ(model, organ_crop, window_size)
 
