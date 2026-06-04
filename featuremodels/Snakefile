@@ -86,6 +86,10 @@ def get_model_resources(wildcards):
         "tapct": {
             "image": "jtagscherer/evalblocks-huggingface:0.0.1",
             "group": "featuremodels_tapct"
+        },
+        "merlin": {
+            "image": "jtagscherer/evalblocks-merlin:0.0.1",
+            "group": "featuremodels_merlin"
         }
     }
     return model_resources.get(wildcards.model_name, model_resources["ctfm"])
@@ -100,7 +104,8 @@ def get_model_script_command(wildcards):
         "spectre": "featuremodels.scripts.spectre",
         "spectrevitg": "featuremodels.scripts.spectrevitg",
         "spectrenovla": "featuremodels.scripts.spectrenovla",
-        "tapct": "featuremodels.scripts.tapct"
+        "tapct": "featuremodels.scripts.tapct",
+        "merlin": "featuremodels.scripts.merlin"
     }
     return model_scripts.get(wildcards.model_name, "featuremodels.scripts.ctfm")
 
