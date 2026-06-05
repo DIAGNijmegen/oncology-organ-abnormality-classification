@@ -100,7 +100,7 @@ rule evaluate_linear_probing:
         aggregation_progress_files = get_aggregation_progress_files
     output:
         output_metrics = OUTPUT_ROOT + "/{model_name}/{organ_name}/metrics/aggregated/{aggregation_method}/linear.json",
-        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/")
+        output_checkpoint = directory(OUTPUT_ROOT + "/{model_name}/{organ_name}/checkpoints/aggregated/{aggregation_method}/linearprobing/")
     params:
         annotations_train_csv = DATASET_ROOT + "/LEAVS/amos_train_annotations.csv",
         annotations_test_csv = DATASET_ROOT + "/LEAVS/amos_test_annotations.csv"
