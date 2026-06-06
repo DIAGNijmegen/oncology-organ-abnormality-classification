@@ -90,7 +90,7 @@ def get_model_resources(wildcards):
         "merlin": {
             "image": "jtagscherer/evalblocks-merlin:0.0.1",
             "group": "featuremodels_merlin",
-            "mem_mb": 64000,
+            "mem_mb": 128000,
         }
     }
     return model_resources.get(wildcards.model_name, model_resources["ctfm"])
