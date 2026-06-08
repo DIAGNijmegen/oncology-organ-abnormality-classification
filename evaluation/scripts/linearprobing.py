@@ -490,8 +490,11 @@ def main(args):
         output_metrics = get_metrics_output_path(
             args.output_root, args.model_name, args.organ_name, args.aggregation_method, "linear"
         )
-        output_checkpoint = get_checkpoint_output_dir(
-            args.output_root, args.model_name, args.organ_name, args.aggregation_method
+        output_checkpoint = os.path.join(
+            get_checkpoint_output_dir(
+                args.output_root, args.model_name, args.organ_name, args.aggregation_method
+            ),
+            "linearprobing"
         )
         
         # Validate inputs early
