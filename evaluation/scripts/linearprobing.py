@@ -390,8 +390,11 @@ def main(args):
         output_metrics = get_all_organs_metrics_output_path(
             args.output_root, args.model_name, args.aggregation_method, "linear"
         )
-        output_checkpoint = get_all_organs_checkpoint_output_dir(
-            args.output_root, args.model_name, args.aggregation_method
+        output_checkpoint = os.path.join(
+            get_all_organs_checkpoint_output_dir(
+                args.output_root, args.model_name, args.aggregation_method
+            ),
+            "linearprobing"
         )
         
         # Load annotations
