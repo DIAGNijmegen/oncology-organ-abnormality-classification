@@ -31,11 +31,6 @@ MERLIN_WINDOW_SIZE = (160, 224, 224)
 MERLIN_TARGET_SPACING = (1.5, 1.5, 3)
 
 
-def _debug_save_crop(crop: np.ndarray, scan_id: str, organ_name: str) -> None:
-    path = f"/tmp/merlin_{scan_id}_{organ_name}.nii.gz"
-    nib.save(nib.Nifti1Image(np.ascontiguousarray(crop, dtype=np.float32), np.eye(4)), path)
-
-
 def load_model():
     model = Merlin(ImageEmbedding=True)
     model.cuda().eval()
@@ -110,10 +105,10 @@ def fit_resampled_crop_to_window(
     fill_value: float = -1024.0,
 ) -> np.ndarray:
     """
-    If the resampled crop is at most 1 voxel off from window_size on every axis,
+    If the resampled crop is at most 8 voxels off from window_size on every axis,
     pad or center-crop to exactly window_size. Otherwise return the crop unchanged.
     """
-    if not all(abs(crop.shape[i] - window_size[i]) <= 1 for i in range(3)):
+    if not all(abs(crop.shape[i] - window_size[i]) <= 8 for i in range(3)):
         return crop
 
     if crop.shape == window_size:
@@ -235,7 +230,6 @@ def process_scan_for_organ(
     window_size: tuple,
     native_window_size: tuple,
     output_path: str,
-    scan_id: str,
 ):
     """
     Process a single scan for a specific organ.
@@ -256,7 +250,6 @@ def process_scan_for_organ(
         return False
 
     organ_crop, bbox_origin = result
-    _debug_save_crop(organ_crop, scan_id, organ_name)
 
     organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
     organ_crop = fit_resampled_crop_to_window(organ_crop, window_size)
@@ -330,7 +323,6 @@ def process_scan_for_all_organs(
             window_size,
             native_window_size,
             output_path,
-            scan_id,
         ):
             processed_count += 1
 
