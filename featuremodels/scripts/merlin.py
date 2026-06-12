@@ -31,6 +31,25 @@ MERLIN_WINDOW_SIZE = (160, 224, 224)
 MERLIN_TARGET_SPACING = (1.5, 1.5, 3)
 
 
+def _debug_save_nifti(volume: np.ndarray, path: str) -> None:
+    nib.save(nib.Nifti1Image(np.ascontiguousarray(volume, dtype=np.float32), np.eye(4)), path)
+
+
+def _debug_save_crop(crop: np.ndarray, scan_id: str, organ_name: str) -> None:
+    _debug_save_nifti(crop, f"/tmp/merlin_{scan_id}_{organ_name}.nii.gz")
+
+
+def _debug_save_patches(
+    patches: list,
+    positions: list,
+    scan_id: str,
+    organ_name: str,
+) -> None:
+    stem = f"/tmp/merlin_{scan_id}_{organ_name}"
+    for i, (patch, (z, y, x)) in enumerate(zip(patches, positions)):
+        _debug_save_nifti(patch, f"{stem}_patch{i:03d}_z{z}_y{y}_x{x}.nii.gz")
+
+
 def load_model():
     model = Merlin(ImageEmbedding=True)
     model.cuda().eval()
@@ -165,7 +184,9 @@ def extract_features_for_organ(
     model,
     organ_crop: np.ndarray,
     window_size: tuple,
-    stride: tuple = None
+    stride: tuple = None,
+    scan_id: str = None,
+    organ_name: str = None,
 ) -> tuple:
     """
     Extract features for an organ crop using sliding windows.
@@ -185,6 +206,9 @@ def extract_features_for_organ(
 
     if not patches:
         return np.array([]), np.array([])
+
+    if scan_id is not None and organ_name is not None:
+        _debug_save_patches(patches, positions, scan_id, organ_name)
 
     with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
         preprocessed_patches = list(executor.map(preprocess_patch, patches))
@@ -230,6 +254,7 @@ def process_scan_for_organ(
     window_size: tuple,
     native_window_size: tuple,
     output_path: str,
+    scan_id: str,
 ):
     """
     Process a single scan for a specific organ.
@@ -250,11 +275,14 @@ def process_scan_for_organ(
         return False
 
     organ_crop, bbox_origin = result
+    _debug_save_crop(organ_crop, scan_id, organ_name)
 
     organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
     organ_crop = fit_resampled_crop_to_window(organ_crop, window_size)
 
-    features, positions = extract_features_for_organ(model, organ_crop, window_size)
+    features, positions = extract_features_for_organ(
+        model, organ_crop, window_size, scan_id=scan_id, organ_name=organ_name
+    )
 
     if len(features) == 0:
         print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Saving placeholder file.")
@@ -323,6 +351,7 @@ def process_scan_for_all_organs(
             window_size,
             native_window_size,
             output_path,
+            scan_id,
         ):
             processed_count += 1
 
