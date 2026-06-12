@@ -27,10 +27,6 @@ MERLIN_TARGET_SPACING = (1.5, 1.5, 3)
 PAD_VALUE = -1024.0
 
 
-def _debug_save_nifti(volume: np.ndarray, path: str) -> None:
-    nib.save(nib.Nifti1Image(np.ascontiguousarray(volume, dtype=np.float32), np.eye(4)), path)
-
-
 def load_model():
     model = Merlin(ImageEmbedding=True)
     model.cuda().eval()
@@ -187,7 +183,6 @@ def process_scan_for_organ(
     seg_path: str,
     organ_name: str,
     output_path: str,
-    scan_id: str,
 ):
     """
     Process a single scan for a specific organ.
@@ -206,7 +201,6 @@ def process_scan_for_organ(
         return False
 
     patch, position = extract_centered_patch(scan_volume, center)
-    _debug_save_nifti(patch, f"/tmp/merlin_{scan_id}_{organ_name}_patch.nii.gz")
 
     feature = extract_feature(model, patch)
     features = np.array([np.expand_dims(feature[0], axis=0)])
@@ -256,7 +250,7 @@ def process_scan_for_all_organs(
         else:
             print(f"Extracting features for organ: {organ_name}")
         if process_scan_for_organ(
-            model, scan_volume, seg_volume, seg_path, organ_name, output_path, scan_id
+            model, scan_volume, seg_volume, seg_path, organ_name, output_path
         ):
             processed_count += 1
 
