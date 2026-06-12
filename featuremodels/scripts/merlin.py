@@ -3,7 +3,6 @@
 
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -19,35 +18,17 @@ from monai.transforms import (
 from monai.data import MetaTensor
 
 from util.util import fix_random_seeds
-from util.leavs_utils import get_organ_crop
-from util.sliding_window import sliding_window_3d
+from util.leavs_utils import ORGAN_NAME_TO_LABEL
 from util.snakemake_helpers import VALID_ORGANS
 import argparse
 
-INFERENCE_BATCH_SIZE = 1
-PREPROCESS_WORKERS = 1
-
-MERLIN_WINDOW_SIZE = (160, 224, 224)
+MERLIN_PATCH_SIZE = (160, 224, 224)
 MERLIN_TARGET_SPACING = (1.5, 1.5, 3)
+PAD_VALUE = -1024.0
 
 
 def _debug_save_nifti(volume: np.ndarray, path: str) -> None:
     nib.save(nib.Nifti1Image(np.ascontiguousarray(volume, dtype=np.float32), np.eye(4)), path)
-
-
-def _debug_save_crop(crop: np.ndarray, scan_id: str, organ_name: str) -> None:
-    _debug_save_nifti(crop, f"/tmp/merlin_{scan_id}_{organ_name}.nii.gz")
-
-
-def _debug_save_patches(
-    patches: list,
-    positions: list,
-    scan_id: str,
-    organ_name: str,
-) -> None:
-    stem = f"/tmp/merlin_{scan_id}_{organ_name}"
-    for i, (patch, (z, y, x)) in enumerate(zip(patches, positions)):
-        _debug_save_nifti(patch, f"{stem}_patch{i:03d}_z{z}_y{y}_x{x}.nii.gz")
 
 
 def load_model():
@@ -56,111 +37,95 @@ def load_model():
     return model
 
 
-def apply_spacing_to_crop(crop: np.ndarray, scan_path: str) -> np.ndarray:
-    """
-    Apply spacing (1.5, 1.5, 3) to the entire organ crop using MONAI.
-    This should be done before extracting patches to avoid changing patch dimensionality.
-
-    Args:
-        crop: 3D numpy array (Z, Y, X)
-        scan_path: Path to original scan (used to get spacing info)
-
-    Returns:
-        Resampled 3D numpy array with spacing (1.5, 1.5, 3)
-    """
+def resample_scan_and_seg(scan_path: str, seg_path: str) -> tuple:
+    """Orient to RAS and resample scan/seg to Merlin target spacing."""
     scan_img = nib.load(scan_path)
-    original_affine = scan_img.affine
+    seg_img = nib.load(seg_path)
 
-    transform = Spacingd(keys=["image"], pixdim=MERLIN_TARGET_SPACING, mode="bilinear")
+    scan_tensor = torch.from_numpy(scan_img.get_fdata()).unsqueeze(0).float()
+    scan_meta = MetaTensor(scan_tensor, affine=scan_img.affine)
 
-    crop_tensor = torch.from_numpy(crop).unsqueeze(0).float()
-    crop_meta = MetaTensor(crop_tensor, affine=original_affine)
+    seg_tensor = torch.from_numpy(seg_img.get_fdata()).unsqueeze(0).float()
+    seg_meta = MetaTensor(seg_tensor, affine=seg_img.affine)
 
-    data_dict = {"image": crop_meta}
-    transformed = transform(data_dict)
-    resampled = transformed["image"].squeeze(0).numpy()
+    scan_data = Compose([
+        Orientationd(keys=["image"], axcodes="RAS"),
+        Spacingd(keys=["image"], pixdim=MERLIN_TARGET_SPACING, mode="bilinear"),
+    ])({"image": scan_meta})["image"].squeeze(0).numpy()
 
-    return resampled
+    seg_data = Compose([
+        Orientationd(keys=["seg"], axcodes="RAS"),
+        Spacingd(keys=["seg"], pixdim=MERLIN_TARGET_SPACING, mode="nearest"),
+    ])({"seg": seg_meta})["seg"].squeeze(0).numpy().astype(int)
+
+    return scan_data, seg_data
 
 
-def get_effective_native_window_size(
-    scan_path: str,
-    target_window_size: tuple = MERLIN_WINDOW_SIZE,
+def get_organ_bbox_origin(seg_path: str, organ_name: str):
+    """Mask bounding-box origin in original segmentation voxel space."""
+    organ_labels = ORGAN_NAME_TO_LABEL.get(organ_name)
+    if organ_labels is None:
+        return None
+    if not isinstance(organ_labels, list):
+        organ_labels = [organ_labels]
+
+    seg_data = nib.load(seg_path).get_fdata().astype(int)
+    organ_mask = np.isin(seg_data, organ_labels)
+    if not np.any(organ_mask):
+        return None
+
+    coords = np.where(organ_mask)
+    return (int(coords[0].min()), int(coords[1].min()), int(coords[2].min()))
+
+
+def get_organ_center(seg_volume: np.ndarray, organ_name: str):
+    """Organ center in resampled segmentation voxel space."""
+    organ_labels = ORGAN_NAME_TO_LABEL.get(organ_name)
+    if organ_labels is None:
+        return None
+    if not isinstance(organ_labels, list):
+        organ_labels = [organ_labels]
+
+    organ_mask = np.isin(seg_volume, organ_labels)
+    if not np.any(organ_mask):
+        return None
+
+    coords = np.where(organ_mask)
+    return (
+        (int(coords[0].min()) + int(coords[0].max())) // 2,
+        (int(coords[1].min()) + int(coords[1].max())) // 2,
+        (int(coords[2].min()) + int(coords[2].max())) // 2,
+    )
+
+
+def extract_centered_patch(
+    volume: np.ndarray,
+    center: tuple,
+    patch_size: tuple = MERLIN_PATCH_SIZE,
+    fill_value: float = PAD_VALUE,
 ) -> tuple:
-    """
-    Native (Z, Y, X) window size for get_organ_crop so that after Spacingd the crop is
-    at least target_window_size in every dimension.
-    """
-    probe = apply_spacing_to_crop(
-        np.zeros(target_window_size, dtype=np.float32),
-        scan_path,
-    )
-    effective = []
-    for i, target in enumerate(target_window_size):
-        resampled = probe.shape[i]
-        if resampled <= 0:
-            raise ValueError(
-                f"Spacing resampling produced non-positive size along axis {i} for {scan_path}"
-            )
-        if resampled >= target:
-            effective.append(target)
-        else:
-            effective.append(int(np.ceil(target * target / resampled)))
+    """Extract a fixed-size patch centered on center, padding with fill_value at edges."""
+    win_z, win_y, win_x = patch_size
+    cz, cy, cx = center
+    z0, y0, x0 = cz - win_z // 2, cy - win_y // 2, cx - win_x // 2
+    z1, y1, x1 = z0 + win_z, y0 + win_y, x0 + win_x
 
-    probe = apply_spacing_to_crop(
-        np.zeros(tuple(effective), dtype=np.float32),
-        scan_path,
-    )
-    for i, target in enumerate(target_window_size):
-        if probe.shape[i] < target:
-            effective[i] += target - probe.shape[i]
+    patch = np.full(patch_size, fill_value, dtype=np.float32)
+    sz0, sy0, sx0 = max(0, z0), max(0, y0), max(0, x0)
+    sz1 = min(volume.shape[0], z1)
+    sy1 = min(volume.shape[1], y1)
+    sx1 = min(volume.shape[2], x1)
 
-    return tuple(effective)
+    if sz1 > sz0 and sy1 > sy0 and sx1 > sx0:
+        oz0, oy0, ox0 = sz0 - z0, sy0 - y0, sx0 - x0
+        oz1, oy1, ox1 = oz0 + (sz1 - sz0), oy0 + (sy1 - sy0), ox0 + (sx1 - sx0)
+        patch[oz0:oz1, oy0:oy1, ox0:ox1] = volume[sz0:sz1, sy0:sy1, sx0:sx1]
 
-
-def fit_resampled_crop_to_window(
-    crop: np.ndarray,
-    window_size: tuple = MERLIN_WINDOW_SIZE,
-    fill_value: float = -1024.0,
-) -> np.ndarray:
-    """
-    If the resampled crop is at most 8 voxels off from window_size on every axis,
-    pad or center-crop to exactly window_size. Otherwise return the crop unchanged.
-    """
-    if not all(abs(crop.shape[i] - window_size[i]) <= 8 for i in range(3)):
-        return crop
-
-    if crop.shape == window_size:
-        return crop
-
-    out = np.full(window_size, fill_value, dtype=crop.dtype)
-    slices_in = []
-    slices_out = []
-    for axis in range(3):
-        in_size = crop.shape[axis]
-        out_size = window_size[axis]
-        if in_size >= out_size:
-            start = (in_size - out_size) // 2
-            slices_in.append(slice(start, start + out_size))
-            slices_out.append(slice(0, out_size))
-        else:
-            start = (out_size - in_size) // 2
-            slices_in.append(slice(0, in_size))
-            slices_out.append(slice(start, start + in_size))
-
-    out[slices_out[0], slices_out[1], slices_out[2]] = crop[
-        slices_in[0], slices_in[1], slices_in[2]
-    ]
-    return out
+    return patch, (z0, y0, x0)
 
 
 def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
-    """
-    Preprocess a 3D patch for Merlin.
-    Expected input: 160x224x224 (Z, Y, X) after spacing has been applied to the crop.
-    """
     transform = Compose([
-        Orientationd(keys=["image"], axcodes="RAS"),
         ScaleIntensityRanged(
             keys=["image"],
             a_min=-1000,
@@ -171,59 +136,16 @@ def preprocess_patch(patch: np.ndarray) -> torch.Tensor:
         ),
         EnsureTyped(keys=["image"], dtype=torch.float32),
     ])
-
     patch_tensor = torch.from_numpy(patch).unsqueeze(0).float()
-    data_dict = {"image": patch_tensor}
-    transformed = transform(data_dict)
-
-    img = transformed["image"].unsqueeze(0)  # (1, C, D, H, W)
-    return img
+    transformed = transform({"image": patch_tensor})
+    return transformed["image"].unsqueeze(0)  # (1, C, D, H, W)
 
 
-def extract_features_for_organ(
-    model,
-    organ_crop: np.ndarray,
-    window_size: tuple,
-    stride: tuple = None,
-    scan_id: str = None,
-    organ_name: str = None,
-) -> tuple:
-    """
-    Extract features for an organ crop using sliding windows.
-
-    Returns:
-        features: List of feature vectors
-        positions: List of (z, y, x) positions
-    """
-    if stride is None:
-        stride = tuple(s // 2 for s in window_size)  # 50% overlap
-
-    patches = []
-    positions = []
-    for patch, (z, y, x) in sliding_window_3d(organ_crop, window_size, stride):
-        patches.append(patch)
-        positions.append((z, y, x))
-
-    if not patches:
-        return np.array([]), np.array([])
-
-    if scan_id is not None and organ_name is not None:
-        _debug_save_patches(patches, positions, scan_id, organ_name)
-
-    with ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS) as executor:
-        preprocessed_patches = list(executor.map(preprocess_patch, patches))
-
-    features = []
+def extract_feature(model, patch: np.ndarray) -> np.ndarray:
+    batch_tensor = preprocess_patch(patch).cuda()
     with torch.no_grad():
-        for batch_start in range(0, len(preprocessed_patches), INFERENCE_BATCH_SIZE):
-            batch_items = preprocessed_patches[batch_start:batch_start + INFERENCE_BATCH_SIZE]
-            batch_tensor = torch.cat(batch_items, dim=0).cuda()
-            outputs = model(batch_tensor)
-            batch_features = outputs[0].detach().cpu().numpy()
-            for feature in batch_features:
-                features.append(np.expand_dims(feature, axis=0))
-
-    return np.array(features), np.array(positions)
+        outputs = model(batch_tensor)
+    return outputs[0].detach().cpu().numpy()
 
 
 def is_valid_output_file(output_path: str) -> bool:
@@ -246,13 +168,24 @@ def is_valid_output_file(output_path: str) -> bool:
     return True
 
 
+def _save_placeholder(output_path: str, organ_name: str, bbox_origin):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    np.savez(
+        output_path,
+        features=np.array([]),
+        positions=np.array([]),
+        bbox_origin=bbox_origin,
+        organ_name=organ_name,
+        is_placeholder=True,
+    )
+
+
 def process_scan_for_organ(
     model,
-    scan_path: str,
+    scan_volume: np.ndarray,
+    seg_volume: np.ndarray,
     seg_path: str,
     organ_name: str,
-    window_size: tuple,
-    native_window_size: tuple,
     output_path: str,
     scan_id: str,
 ):
@@ -260,42 +193,24 @@ def process_scan_for_organ(
     Process a single scan for a specific organ.
     Returns True if features were extracted, False if placeholder was saved.
     """
-    result = get_organ_crop(scan_path, seg_path, organ_name, native_window_size)
-    if result is None:
-        print(f"Warning: Organ {organ_name} not found in segmentation {seg_path} for scan {scan_path}. Saving placeholder file.")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        np.savez(
-            output_path,
-            features=np.array([]),
-            positions=np.array([]),
-            bbox_origin=None,
-            organ_name=organ_name,
-            is_placeholder=True
-        )
+    bbox_origin = get_organ_bbox_origin(seg_path, organ_name)
+    if bbox_origin is None:
+        print(f"Warning: Organ {organ_name} not found in segmentation {seg_path}. Saving placeholder file.")
+        _save_placeholder(output_path, organ_name, None)
         return False
 
-    organ_crop, bbox_origin = result
-    _debug_save_crop(organ_crop, scan_id, organ_name)
-
-    organ_crop = apply_spacing_to_crop(organ_crop, scan_path)
-    organ_crop = fit_resampled_crop_to_window(organ_crop, window_size)
-
-    features, positions = extract_features_for_organ(
-        model, organ_crop, window_size, scan_id=scan_id, organ_name=organ_name
-    )
-
-    if len(features) == 0:
-        print(f"Warning: No features extracted from organ {organ_name} in scan {scan_path}. Organ crop may be too small. Saving placeholder file.")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        np.savez(
-            output_path,
-            features=np.array([]),
-            positions=np.array([]),
-            bbox_origin=bbox_origin,
-            organ_name=organ_name,
-            is_placeholder=True
-        )
+    center = get_organ_center(seg_volume, organ_name)
+    if center is None:
+        print(f"Warning: Organ {organ_name} not found in resampled segmentation for {seg_path}. Saving placeholder file.")
+        _save_placeholder(output_path, organ_name, bbox_origin)
         return False
+
+    patch, position = extract_centered_patch(scan_volume, center)
+    _debug_save_nifti(patch, f"/tmp/merlin_{scan_id}_{organ_name}_patch.nii.gz")
+
+    feature = extract_feature(model, patch)
+    features = np.array([np.expand_dims(feature[0], axis=0)])
+    positions = np.array([position])
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     np.savez(
@@ -304,7 +219,7 @@ def process_scan_for_organ(
         positions=positions,
         bbox_origin=bbox_origin,
         organ_name=organ_name,
-        is_placeholder=False
+        is_placeholder=False,
     )
     return True
 
@@ -314,17 +229,14 @@ def process_scan_for_all_organs(
     scan_path: str,
     seg_path: str,
     organ_names: list,
-    window_size: tuple,
     output_root: str,
     model_name: str,
     split: str,
     scan_id: str,
 ):
-    """
-    Process a scan for all specified organs.
-    Saves one file per organ using the standard output path convention.
-    """
-    native_window_size = get_effective_native_window_size(scan_path, window_size)
+    """Process a scan for all specified organs."""
+    scan_volume, seg_volume = resample_scan_and_seg(scan_path, seg_path)
+
     processed_count = 0
     for organ_name in organ_names:
         output_path = os.path.join(
@@ -344,14 +256,7 @@ def process_scan_for_all_organs(
         else:
             print(f"Extracting features for organ: {organ_name}")
         if process_scan_for_organ(
-            model,
-            scan_path,
-            seg_path,
-            organ_name,
-            window_size,
-            native_window_size,
-            output_path,
-            scan_id,
+            model, scan_volume, seg_volume, seg_path, organ_name, output_path, scan_id
         ):
             processed_count += 1
 
@@ -390,8 +295,6 @@ def main(args):
 
     organ_names = VALID_ORGANS
 
-    window_size = MERLIN_WINDOW_SIZE
-
     print("Loading model...")
     try:
         model = load_model()
@@ -414,7 +317,6 @@ def main(args):
                 scan_path,
                 seg_path,
                 organ_names,
-                window_size,
                 args.output_root,
                 args.model_name,
                 args.split,
