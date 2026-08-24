@@ -83,7 +83,7 @@ rule aggregate_mean:
         qos="idle",
         cpus=8,
         gpus=0,
-        mem_mb=16000,
+        mem_mb=32000,
         time="1-00:00:00"
     params:
         input_features_str = join_input_features_mean
@@ -117,7 +117,7 @@ rule aggregate_max:
         qos="idle",
         cpus=8,
         gpus=0,
-        mem_mb=16000,
+        mem_mb=32000,
         time="1-00:00:00"
     params:
         input_features_str = join_input_features_max
@@ -151,7 +151,7 @@ rule aggregate_std:
         qos="idle",
         cpus=8,
         gpus=0,
-        mem_mb=16000,
+        mem_mb=32000,
         time="1-00:00:00"
     params:
         input_features_str = join_input_features_std
@@ -185,7 +185,7 @@ rule aggregate_median:
         qos="idle",
         cpus=8,
         gpus=0,
-        mem_mb=16000,
+        mem_mb=32000,
         time="1-00:00:00"
     params:
         input_features_str = join_input_features_median
@@ -219,7 +219,7 @@ rule aggregate_meanstd:
         qos="idle",
         cpus=8,
         gpus=0,
-        mem_mb=16000,
+        mem_mb=32000,
         time="1-00:00:00"
     params:
         input_features_str = join_input_features_meanstd

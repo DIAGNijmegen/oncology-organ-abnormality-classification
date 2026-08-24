@@ -20,6 +20,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -44,6 +46,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -68,6 +72,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -92,6 +98,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -116,6 +124,8 @@
     "evaluation_modes": [
       "knn",
       "linear",
+      "mlp1",
+      "mlp2",
       "attention"
     ]
   },
@@ -135,7 +145,61 @@
     ],
     "evaluation_modes": [
       "knn",
-      "linear"
+      "linear",
+      "mlp1",
+      "mlp2"
+    ]
+  },
+  "merlin": {
+    "description": "Merlin",
+    "model": {
+      "architecture": "merlin",
+      "type": null
+    },
+    "datasets": [
+      {
+        "name": "LEAVS"
+      }
+    ],
+    "aggregation_methods": [
+      "mean",
+      "max",
+      "std",
+      "median",
+      "meanstd"
+    ],
+    "evaluation_modes": [
+      "knn",
+      "linear",
+      "mlp1",
+      "mlp2",
+      "attention"
+    ]
+  },
+  "spectrenovla": {
+    "description": "SPECTRE w/o VLA",
+    "model": {
+      "architecture": "spectrenovla",
+      "type": null
+    },
+    "datasets": [
+      {
+        "name": "LEAVS"
+      }
+    ],
+    "aggregation_methods": [
+      "mean",
+      "max",
+      "std",
+      "median",
+      "meanstd"
+    ],
+    "evaluation_modes": [
+      "knn",
+      "linear",
+      "mlp1",
+      "mlp2",
+      "attention"
     ]
   }
 }

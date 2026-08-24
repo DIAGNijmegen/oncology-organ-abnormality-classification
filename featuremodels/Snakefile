@@ -79,12 +79,26 @@ def get_model_resources(wildcards):
             "image": "jtagscherer/evalblocks-spectre:0.0.1",
             "group": "featuremodels_spectrevitg"
         },
+        "spectrenovla": {
+            "image": "jtagscherer/evalblocks-spectre:0.0.1",
+            "group": "featuremodels_spectrenovla"
+        },
         "tapct": {
             "image": "jtagscherer/evalblocks-huggingface:0.0.1",
             "group": "featuremodels_tapct"
+        },
+        "merlin": {
+            "image": "jtagscherer/evalblocks-merlin:0.0.1",
+            "group": "featuremodels_merlin",
+            "mem_mb": 24000,
         }
     }
     return model_resources.get(wildcards.model_name, model_resources["ctfm"])
+
+
+def get_model_mem_mb(wildcards):
+    """Get memory allocation based on model name."""
+    return get_model_resources(wildcards).get("mem_mb", 16000)
 
 
 def get_model_script_command(wildcards):
@@ -95,7 +109,9 @@ def get_model_script_command(wildcards):
         "umedpt": "featuremodels.scripts.umedpt",
         "spectre": "featuremodels.scripts.spectre",
         "spectrevitg": "featuremodels.scripts.spectrevitg",
-        "tapct": "featuremodels.scripts.tapct"
+        "spectrenovla": "featuremodels.scripts.spectrenovla",
+        "tapct": "featuremodels.scripts.tapct",
+        "merlin": "featuremodels.scripts.merlin"
     }
     return model_scripts.get(wildcards.model_name, "featuremodels.scripts.ctfm")
 
@@ -121,7 +137,7 @@ rule compute_features:
         qos = "low",
         cpus = 16,
         gpus = 1,
-        mem_mb = 16000,
+        mem_mb = get_model_mem_mb,
         time = "1-00:00:00"
     params:
         script_module = get_model_script_command,

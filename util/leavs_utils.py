@@ -245,8 +245,8 @@ def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, window_size: 
     Extract organ crop from scan using segmentation mask.
     
     If the organ bounding box is smaller than window_size, returns a crop of exactly
-    window_size centered on the organ. The scan is padded with -1024 before cropping
-    to handle cases where the crop extends beyond scan boundaries.
+    window_size centered on the organ. Pads with -1024 only on sides where the crop
+    extends beyond scan boundaries.
     
     Args:
         scan_path: Path to scan NIfTI file
@@ -312,35 +312,34 @@ def get_organ_crop(scan_path: str, seg_path: str, organ_name: str, window_size: 
     crop_y_size = max(mask_y_size, window_y)
     crop_x_size = max(mask_x_size, window_x)
     
-    # Calculate crop bounds centered on organ
+    # Calculate crop bounds centered on organ (may extend past scan edges)
     z_min_crop = z_center - crop_z_size // 2
     z_max_crop = z_min_crop + crop_z_size - 1
     y_min_crop = y_center - crop_y_size // 2
     y_max_crop = y_min_crop + crop_y_size - 1
     x_min_crop = x_center - crop_x_size // 2
     x_max_crop = x_min_crop + crop_x_size - 1
-    
-    # Calculate padding: use max window dimension for all sides
-    max_padding = max(window_z, window_y, window_x)
-    
-    # Pad scan with -1024
-    scan_data = np.pad(
-        scan_data,
-        ((max_padding, max_padding), (max_padding, max_padding), (max_padding, max_padding)),
-        mode='constant',
-        constant_values=-1024
-    )
-    
-    # Adjust crop coordinates for padding
-    z_min_crop += max_padding
-    z_max_crop += max_padding
-    y_min_crop += max_padding
-    y_max_crop += max_padding
-    x_min_crop += max_padding
-    x_max_crop += max_padding
-    
-    # Crop
-    organ_crop = scan_data[z_min_crop:z_max_crop+1, y_min_crop:y_max_crop+1, x_min_crop:x_max_crop+1]
+
+    depth, height, width = scan_data.shape
+    pad_z = (max(0, -z_min_crop), max(0, z_max_crop - (depth - 1)))
+    pad_y = (max(0, -y_min_crop), max(0, y_max_crop - (height - 1)))
+    pad_x = (max(0, -x_min_crop), max(0, x_max_crop - (width - 1)))
+
+    if any(pad_z) or any(pad_y) or any(pad_x):
+        scan_data = np.pad(
+            scan_data,
+            (pad_z, pad_y, pad_x),
+            mode="constant",
+            constant_values=-1024,
+        )
+        z_min_crop += pad_z[0]
+        z_max_crop += pad_z[0]
+        y_min_crop += pad_y[0]
+        y_max_crop += pad_y[0]
+        x_min_crop += pad_x[0]
+        x_max_crop += pad_x[0]
+
+    organ_crop = scan_data[z_min_crop:z_max_crop + 1, y_min_crop:y_max_crop + 1, x_min_crop:x_max_crop + 1]
     bbox_origin = (z_min_mask, y_min_mask, x_min_mask)
     
     return organ_crop, bbox_origin
