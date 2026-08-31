@@ -4,6 +4,8 @@
 
 This EvalBlocks pipeline evaluates five state-of-the-art foundation models in medical imaging on the task of organ abnormality classification. It uses several aggregation methods to learn an organ-level downstream classification task from patch-level embeddings.
 
+Read the paper here: http://dx.doi.org/10.1007/s11548-026-03786-x.
+
 ## Running the pipeline
 
 To run the evaluation pipeline using EvalBlocks, follow these steps:
@@ -54,7 +56,22 @@ snakemake --profile ./cluster-config-folder/
 
 That's it! The pipeline will orchestrate all computation steps, leveraging your cluster resources as specified in the configuration file.
 
-## Attribution
+## Attribution and citation
+
+```
+@article{
+  tagscherer2026organabnormality,
+  title={Systematic evaluation of foundation models for organ-level classification on CT scans},
+  ISSN={1861-6429},
+  url={http://dx.doi.org/10.1007/s11548-026-03786-x},
+  DOI={10.1007/s11548-026-03786-x},
+  journal={International Journal of Computer Assisted Radiology and Surgery},
+  publisher={Springer Science and Business Media LLC},
+  author={Tagscherer, Jan and de Boer, Sarah and van der Graaf, Fennie and Philipp, Lena and Jacobs, Colin and Smit, Ewoud J. and Hering, Alessa},
+  year={2026},
+  month=Aug
+}
+```
 
 This tool was developed by the [Oncology Research Group at the Diagnostic Image Analysis Group (DIAG)](https://www.diagnijmegen.nl/research/oncology/), Radboud University Medical Center.
 
